@@ -10,13 +10,14 @@ const SHORT: Record<SourceId, string> = {
 };
 
 /** "relevance" is the unmodified fetch order — the default, unchanged behavior. */
-export type SortMode = "relevance" | "lightest" | "darkest" | "hue";
+export type SortMode = "relevance" | "lightest" | "darkest" | "hue" | "calmest";
 
 const SORTS: { id: SortMode; label: string }[] = [
   { id: "relevance", label: "Relevance" },
   { id: "lightest", label: "Lightest" },
   { id: "darkest", label: "Darkest" },
   { id: "hue", label: "By hue" },
+  { id: "calmest", label: "Calmest" },
 ];
 
 export default function FilterBar({

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Artwork } from "@/lib/types";
+import { useCalmScore } from "@/lib/calm-client";
 import SourceBadge from "./SourceBadge";
 
 export default function ArtworkCard({
@@ -10,6 +11,7 @@ export default function ArtworkCard({
   artwork: Artwork;
   onOpen: (a: Artwork) => void;
 }) {
+  const calm = useCalmScore(artwork);
   return (
     <figure className="group mb-8 break-inside-avoid">
       <button
@@ -42,10 +44,16 @@ export default function ArtworkCard({
             <SourceBadge source={artwork.source} />
           </div>
         </div>
-        <span className="caption">
-          {artwork.artist}
-          {artwork.date ? ` · ${artwork.date}` : ""}
-        </span>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="caption">
+            {artwork.artist}
+            {artwork.date ? ` · ${artwork.date}` : ""}
+          </span>
+          {/* fixed-width slot reserved up front — no shift when the score lands */}
+          <span className="caption min-w-[4.5em] shrink-0 text-right font-mono">
+            {calm ? `calm ${calm.score}` : ""}
+          </span>
+        </div>
       </figcaption>
     </figure>
   );

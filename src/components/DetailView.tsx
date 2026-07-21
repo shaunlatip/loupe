@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { Artwork } from "@/lib/types";
+import { useCalmScore } from "@/lib/calm-client";
 import { sourceLabel } from "./SourceBadge";
 
 export default function DetailView({
@@ -14,6 +15,8 @@ export default function DetailView({
   /** slot for save/export affordances added in later slices */
   actions?: React.ReactNode;
 }) {
+  const calm = useCalmScore(artwork);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -21,6 +24,9 @@ export default function DetailView({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const rect = calm?.rect;
+  const hasSafeZone = !!rect && rect.w > 0 && rect.h > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-paper">
@@ -35,12 +41,32 @@ export default function DetailView({
       </header>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-wash p-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={artwork.imageHires}
-            alt={artwork.title}
-            className="max-h-full max-w-full border border-ink object-contain"
-          />
+          {/* inline-block shrink-wraps to the image's own rendered box (no
+              separate letterboxed frame), so percentage-positioned children
+              land exactly on the displayed pixels regardless of viewport. */}
+          <div className="relative inline-block max-h-full max-w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={artwork.imageHires}
+              alt={artwork.title}
+              className="block max-h-full max-w-full border border-ink object-contain"
+            />
+            {hasSafeZone && (
+              <div
+                className="pointer-events-none absolute border border-accent"
+                style={{
+                  left: `${rect.x * 100}%`,
+                  top: `${rect.y * 100}%`,
+                  width: `${rect.w * 100}%`,
+                  height: `${rect.h * 100}%`,
+                }}
+              >
+                <span className="caption absolute left-0 top-0 -translate-y-full bg-paper px-1 text-accent">
+                  UI-safe zone
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         <aside className="w-full shrink-0 overflow-y-auto border-t border-ink p-6 md:w-[360px] md:border-t-0 md:border-l">
           <h2 className="text-[24px] leading-tight font-semibold">

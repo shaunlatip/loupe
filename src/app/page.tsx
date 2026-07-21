@@ -9,6 +9,7 @@ import type {
   SourceError,
   SourceId,
 } from "@/lib/types";
+import { peekCalm, requestCalmForAll, subscribeCalm } from "@/lib/calm-client";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
@@ -34,9 +35,24 @@ function fitsHero(a: Artwork): boolean {
  * lacking `color` (Met/CMA, or AIC records AIC itself didn't analyze) sort
  * to the end rather than dropping out — Array#sort is stable, so within
  * each group (has-color / no-color) original relative order is preserved.
+ *
+ * "calmest" follows the same lacking-data convention: calm scores compute
+ * lazily and asynchronously (see calm-client.ts), so at any given moment
+ * some works may not have a score yet. Those sort to the end rather than
+ * blocking the sort or guessing; selecting "calmest" also kicks off
+ * computation for every currently-loaded work (see the effect in Home),
+ * and each resolving score re-runs this sort so the grid settles into
+ * calmest-first order progressively rather than jumping once at the end.
  */
 function sortArtworks(list: Artwork[], mode: SortMode): Artwork[] {
   if (mode === "relevance") return list;
+  if (mode === "calmest") {
+    const scored: Artwork[] = [];
+    const unscored: Artwork[] = [];
+    for (const a of list) (peekCalm(a.id) ? scored : unscored).push(a);
+    scored.sort((a, b) => peekCalm(b.id)!.score - peekCalm(a.id)!.score);
+    return [...scored, ...unscored];
+  }
   const withColor: Artwork[] = [];
   const withoutColor: Artwork[] = [];
   for (const a of list) (a.color ? withColor : withoutColor).push(a);
@@ -174,6 +190,16 @@ export default function Home() {
       .then((j: { collections: Collection[] }) => setCollections(j.collections))
       .catch(() => {});
   }, []);
+
+  // "calmest" sort: re-render (and re-sort, via the calmTick dependency
+  // below) whenever any card's score resolves. Subscribed unconditionally
+  // — cheap, and avoids a subscribe/unsubscribe dance each time sort mode
+  // flips — but requestCalmForAll only fires while "calmest" is selected.
+  const [calmTick, setCalmTick] = useState(0);
+  useEffect(() => subscribeCalm(() => setCalmTick((t) => t + 1)), []);
+  useEffect(() => {
+    if (sort === "calmest") requestCalmForAll(results.artworks);
+  }, [sort, results.artworks]);
 
   const fetchResults = useCallback(
     async (params: URLSearchParams, origin: ResultState["origin"]) => {
@@ -412,7 +438,9 @@ export default function Home() {
       list = withDims.filter(fitsHero);
     }
     return { displayArtworks: sortArtworks(list, sort), heroHiddenCount: hiddenForDims };
-  }, [results.artworks, sort, heroOnly]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- calmTick forces
+    // a re-sort as lazily-computed scores resolve; it carries no data itself.
+  }, [results.artworks, sort, heroOnly, calmTick]);
 
   return (
     <>
