@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/*
+ * Loupe design system — American art-museum register
+ * (Whitney / MFA Boston / Guggenheim): flat, Swiss grid,
+ * zero radius, no shadows, ink-on-paper with one bright accent.
+ */
+@theme {
+  /* color */
+  --color-paper: #ffffff;
+  --color-ink: #0a0a0a;
+  --color-accent: #2400ff; /* Klein-blue territory — active states + Claude panel */
+  --color-rule: #0a0a0a; /* 1px structural rules are ink, not gray */
+  --color-wash: #f2f2f2; /* input/hover wash — the one non-ink surface */
+
+  /* shadcn semantic names, mapped to the museum register
+     (the ui/ chat components read these) */
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-primary: #0a0a0a; /* user bubble: ink block, paper text */
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f2f2f2;
+  --color-secondary-foreground: #0a0a0a;
+  --color-muted: #f2f2f2; /* surface (shadcn semantic) */
+  --color-muted-foreground: #6b6b6b; /* secondary text */
+  --color-border: #0a0a0a;
+  --color-input: #0a0a0a;
+  --color-ring: #2400ff;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-destructive: #b3261e;
+  --color-destructive-foreground: #ffffff;
+  --color-accent-foreground: #ffffff;
+
+  /* type */
+  --font-sans: var(--font-instrument), "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), "SF Mono", monospace;
+
+  /* radius: zero everywhere — stray rounded-* classes render square */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+
+  /* shadows: none — elevation is a 1px ink border on paper */
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-paper);
+}
+
+/* Outlined display type — Whitney-style hollow headline */
+.text-outline {
+  -webkit-text-stroke: 1.5px var(--color-ink);
+  color: transparent;
+}
+
+/* Caption register: 11px, tracked, sentence case */
+.caption {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-muted-foreground);
+}
+
+/* Invert hover — museum-site button behavior */
+.invert-hover {
+  transition: background-color 120ms, color 120ms;
+}
+.invert-hover:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}

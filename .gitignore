@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# runtime state — collections + settings live here, never committed
+data/
+
+# env
+.env*.local
+
+.DS_Store
