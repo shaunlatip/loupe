@@ -45,6 +45,8 @@ export interface SearchFacets {
     culture?: string;
     createdAfter?: number;
     createdBefore?: number;
+    /** CMA has no subject facet — per-source keyword stands in for one */
+    q?: string;
   };
   met?: {
     departmentId?: number;

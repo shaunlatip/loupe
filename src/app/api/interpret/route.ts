@@ -1,0 +1,177 @@
+import { NextRequest, NextResponse } from "next/server";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { CATEGORIES } from "@/lib/presets";
+import { searchQuerySchema } from "@/lib/search-schema";
+import { matchVocab, VOCAB, type VocabEntry } from "@/lib/vocab";
+import type { SearchQuery } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+/**
+ * POST /api/interpret { q } → { query, explanation, method } — compiles a
+ * vague vibe phrase into one concrete SearchQuery. Fast path: the shared
+ * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot Claude call
+ * (no session, no tools, maxTurns 1) with auth resolved by the SDK from
+ * ANTHROPIC_API_KEY or an `ant` profile — same as /api/agent, never a key
+ * in code. Any failure degrades to method:"fallback" (search the phrase
+ * as-is); this route never 500s.
+ */
+
+interface InterpretResult {
+  query: SearchQuery;
+  explanation: string;
+  method: "vocab" | "claude" | "fallback";
+}
+
+/** Shallow-merge matched entries' queries; first match wins on conflicts. */
+function mergeVocabQueries(entries: VocabEntry[]): SearchQuery {
+  const out: SearchQuery = {};
+  for (const entry of entries) {
+    const q = entry.query;
+    if (out.q === undefined && q.q !== undefined) out.q = q.q;
+    if (out.artist === undefined && q.artist !== undefined) out.artist = q.artist;
+    if (out.dateRange === undefined && q.dateRange !== undefined)
+      out.dateRange = q.dateRange;
+    if (q.facets) {
+      out.facets ??= {};
+      for (const source of ["aic", "cma", "met", "rijks"] as const) {
+        const add = q.facets[source];
+        if (!add) continue;
+        // field-level first-wins merge within each source namespace
+        out.facets[source] = { ...add, ...out.facets[source] };
+      }
+    }
+  }
+  return out;
+}
+
+function buildInterpretPrompt(): string {
+  const vocabTable = VOCAB.map(
+    (v) =>
+      `- ${v.label}${v.note ? ` (${v.note})` : ""}: ${JSON.stringify(v.query)}`,
+  ).join("\n");
+  const categoryTable = CATEGORIES.map(
+    (c) => `- ${c.label}: ${JSON.stringify(c.query)}`,
+  ).join("\n");
+
+  return `You compile a product designer's vague "vibe" phrase into exactly ONE SearchQuery JSON object for museum open-access APIs (Art Institute of Chicago "aic", The Met "met", Cleveland "cma"). The results become full-bleed design backdrops — favor atmospheric works with large calm areas.
+
+SearchQuery shape (all fields optional; omit what you don't need; never invent other fields):
+{
+  "q": string,                      // free-text keyword sent to every source
+  "artist": string,
+  "dateRange": [number, number],    // years
+  "facets": {
+    "aic": { "styleName": string, "subjectName": string, "classificationName": string, "departmentName": string, "dateFrom": number, "dateTo": number },
+    "met": { "departmentId": number, "medium": string, "geoLocation": string, "dateBegin": number, "dateEnd": number, "q": string, "tags": boolean },
+    "cma": { "type": string, "technique": string, "department": string, "culture": string, "createdAfter": number, "createdBefore": number, "q": string }
+  }
+}
+
+Rules:
+- aic styleName/subjectName/classificationName are resolved against AIC's real vocabulary at runtime — only use names you'd expect there (styles: Impressionism, Post-Impressionism, Baroque, Romanticism, Realism; subjects: Landscapes, Seascapes, Still life, Portraits; classifications: painting, print, woodblock print). Unresolvable names are dropped silently. AIC's night-related subject terms are empty — for nocturnes use the keyword "nocturne" instead.
+- A top-level "q" is ANDed with aic subject filters and can intersect to empty — when a keyword only helps one source, put it in facets.met.q or facets.cma.q instead.
+- facets.met.tags:true makes facets.met.q match The Met's subject tags.
+- cma fields are free-text and substring-matched.
+- Omit "rijks" entirely (dormant source).
+- Prefer 2–4 concrete fields over many speculative ones.
+
+Known vocabulary recipes (concept: query):
+${vocabTable}
+
+Category recipes (more working examples):
+${categoryTable}
+
+Example compilations:
+"misty atmospheric morning" → {"query":{"q":"mist","facets":{"aic":{"styleName":"Impressionism"}}},"explanation":"Impressionist mist and fog studies — Monet, Boudin territory."}
+"something dark and moody to put white text on" → {"query":{"q":"nocturne"},"explanation":"Nocturnes — Whistler's dark register, deep grounds for light UI."}
+"quiet dutch kitchen scene" → {"query":{"q":"interior","dateRange":[1600,1700],"facets":{"met":{"geoLocation":"Netherlands","dateBegin":1600,"dateEnd":1700},"cma":{"culture":"Netherlands"}}},"explanation":"Dutch Golden Age domestic interiors."}
+
+Respond with ONLY this JSON object, no markdown fences, no prose:
+{"query": <SearchQuery>, "explanation": "<one sentence naming the art-historical idea>"}`;
+}
+
+/** Pull the first {...} JSON object out of a model reply (fences tolerated). */
+function extractJson(text: string): unknown {
+  const cleaned = text.replace(/```(?:json)?/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end <= start) throw new Error("no JSON object in reply");
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+async function interpretWithClaude(q: string): Promise<InterpretResult> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 45_000);
+  try {
+    const conversation = query({
+      prompt: q,
+      options: {
+        systemPrompt: buildInterpretPrompt(),
+        abortController: abort,
+        // one-shot compile: no session, no tools, single turn
+        tools: [],
+        allowedTools: [],
+        maxTurns: 1,
+      },
+    });
+    let text = "";
+    for await (const msg of conversation) {
+      if (msg.type === "result") {
+        if (msg.subtype !== "success") throw new Error(`agent result: ${msg.subtype}`);
+        text = msg.result;
+      }
+    }
+    const raw = extractJson(text) as {
+      query?: unknown;
+      explanation?: unknown;
+    };
+    const parsed = searchQuerySchema.parse(raw.query);
+    return {
+      query: parsed,
+      explanation:
+        typeof raw.explanation === "string" && raw.explanation.trim()
+          ? raw.explanation.trim()
+          : "Compiled by Claude.",
+      method: "claude",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let q = "";
+  try {
+    const body = (await req.json()) as { q?: unknown };
+    if (typeof body.q === "string") q = body.q.trim();
+  } catch {
+    /* handled below */
+  }
+  if (!q) {
+    return NextResponse.json({ error: "q required" }, { status: 400 });
+  }
+
+  // Fast path: the shared vocabulary, no LLM call.
+  const matches = matchVocab(q);
+  if (matches.length > 0) {
+    return NextResponse.json({
+      query: mergeVocabQueries(matches),
+      explanation: `Matched: ${matches.map((m) => m.label).join(", ")}.`,
+      method: "vocab",
+    } satisfies InterpretResult);
+  }
+
+  // LLM path — one-shot compile; ANY failure degrades to as-is search.
+  try {
+    return NextResponse.json(await interpretWithClaude(q));
+  } catch {
+    return NextResponse.json({
+      query: { q },
+      explanation: "searched as-is",
+      method: "fallback",
+    } satisfies InterpretResult);
+  }
+}

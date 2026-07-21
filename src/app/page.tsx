@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Artwork, SearchResponse, SourceError, SourceId } from "@/lib/types";
+import type {
+  Artwork,
+  SearchFacets,
+  SearchQuery,
+  SearchResponse,
+  SourceError,
+  SourceId,
+} from "@/lib/types";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
@@ -25,6 +32,85 @@ interface Collection {
   artworks: Artwork[];
 }
 
+interface Interpretation {
+  query: SearchQuery;
+  explanation: string;
+  method: "vocab" | "claude" | "fallback";
+}
+
+/** compiled-query chips — readable field names per facet entry */
+const FIELD_LABELS: Record<string, string> = {
+  styleName: "style",
+  subjectName: "subject",
+  classificationName: "classification",
+  departmentName: "department",
+  departmentId: "department",
+  dateFrom: "from",
+  dateTo: "to",
+  dateBegin: "from",
+  dateEnd: "to",
+  createdAfter: "after",
+  createdBefore: "before",
+  geoLocation: "geo",
+  medium: "medium",
+  technique: "technique",
+  type: "type",
+  culture: "culture",
+  material: "material",
+  datingPeriod: "century",
+  q: "q",
+  tags: "tags",
+};
+
+interface QueryChip {
+  id: string;
+  label: string;
+  value: string;
+}
+
+function queryChips(query: SearchQuery): QueryChip[] {
+  const chips: QueryChip[] = [];
+  if (query.q) chips.push({ id: "q", label: "q", value: query.q });
+  if (query.artist) chips.push({ id: "artist", label: "artist", value: query.artist });
+  if (query.dateRange)
+    chips.push({
+      id: "dateRange",
+      label: "dates",
+      value: `${query.dateRange[0]}–${query.dateRange[1]}`,
+    });
+  for (const source of Object.keys(query.facets ?? {}) as (keyof SearchFacets)[]) {
+    const ns = query.facets?.[source] as Record<string, unknown> | undefined;
+    if (!ns) continue;
+    for (const [field, value] of Object.entries(ns)) {
+      if (value === undefined) continue;
+      chips.push({
+        id: `${source}.${field}`,
+        label: `${source} ${FIELD_LABELS[field] ?? field}`,
+        value: String(value),
+      });
+    }
+  }
+  return chips;
+}
+
+/** remove one chip's field from a compiled query (chip ids from queryChips) */
+function removeQueryField(query: SearchQuery, chipId: string): SearchQuery {
+  const next: SearchQuery = structuredClone(query);
+  if (chipId === "q") delete next.q;
+  else if (chipId === "artist") delete next.artist;
+  else if (chipId === "dateRange") delete next.dateRange;
+  else {
+    const [source, field] = chipId.split(".") as [keyof SearchFacets, string];
+    const ns = next.facets?.[source] as Record<string, unknown> | undefined;
+    if (ns) {
+      delete ns[field];
+      if (Object.keys(ns).length === 0) delete next.facets?.[source];
+      if (next.facets && Object.keys(next.facets).length === 0) delete next.facets;
+    }
+  }
+  return next;
+}
+
 // Rijksmuseum is omitted: its classic keyed API is deprecated (key issuance
 // retired) and the keyless replacement returns only Linked-Art IRIs. The
 // adapter stays registered but dormant; re-add "rijks" here if a key returns.
@@ -42,6 +128,8 @@ export default function Home() {
   const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
   const [artist, setArtist] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
+  const [interpretOn, setInterpretOn] = useState(false);
+  const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [activeCollection, setActiveCollection] = useState<string | undefined>();
@@ -73,18 +161,89 @@ export default function Home() {
     [],
   );
 
+  // POST a full SearchQuery (interpret mode + chip edits) — same fanout as GET
+  const runQuerySearch = useCallback(
+    async (query: SearchQuery) => {
+      setLoading(true);
+      setSearched(true);
+      setActiveCollection(undefined);
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query, sources }),
+        });
+        const json = (await res.json()) as SearchResponse;
+        setResults({ ...json, origin: "manual" });
+      } catch {
+        setResults({ ...EMPTY, origin: "manual" });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [sources],
+  );
+
+  const runInterpret = useCallback(
+    async (q: string) => {
+      setActiveCategory(undefined);
+      setLoading(true);
+      setSearched(true);
+      // the route itself degrades; this is only for network-level failure
+      let interp: Interpretation = {
+        query: { q },
+        explanation: "searched as-is",
+        method: "fallback",
+      };
+      try {
+        const res = await fetch("/api/interpret", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ q }),
+        });
+        if (res.ok) interp = (await res.json()) as Interpretation;
+      } catch {
+        /* keep fallback */
+      }
+      setInterpretation(interp);
+      await runQuerySearch(interp.query);
+    },
+    [runQuerySearch],
+  );
+
   const runSearch = useCallback(
     (q: string) => {
+      if (interpretOn) {
+        void runInterpret(q);
+        return;
+      }
+      setInterpretation(null);
       setActiveCategory(undefined);
       const params = new URLSearchParams({ q, sources: sources.join(",") });
       if (artist.trim()) params.set("artist", artist.trim());
       void fetchResults(params, "manual");
     },
-    [artist, sources, fetchResults],
+    [interpretOn, runInterpret, artist, sources, fetchResults],
   );
+
+  const removeChip = useCallback(
+    (chipId: string) => {
+      if (!interpretation) return;
+      const next = removeQueryField(interpretation.query, chipId);
+      setInterpretation({ ...interpretation, query: next });
+      void runQuerySearch(next);
+    },
+    [interpretation, runQuerySearch],
+  );
+
+  const toggleInterpret = useCallback(() => {
+    setInterpretOn((v) => !v);
+    setInterpretation(null); // entering has no chips yet; leaving clears them
+  }, []);
 
   const pickCategory = useCallback(
     (id: string) => {
+      setInterpretation(null);
       setActiveCategory(id);
       const params = new URLSearchParams({
         category: id,
@@ -148,6 +307,7 @@ export default function Home() {
       if (!c) return;
       setSearched(true);
       setActiveCategory(undefined);
+      setInterpretation(null);
       setActiveCollection(id);
       setResults({
         artworks: c.artworks,
@@ -200,6 +360,7 @@ export default function Home() {
   const onSelection = useCallback((artworks: Artwork[], note: string) => {
     setSearched(true);
     setActiveCategory(undefined);
+    setInterpretation(null);
     setActiveCollection(undefined);
     setResults({ artworks, errors: [], origin: "claude", note });
   }, []);
@@ -231,7 +392,43 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <SearchBar onSearch={runSearch} loading={loading} />
+          <SearchBar
+            onSearch={runSearch}
+            loading={loading}
+            interpret={interpretOn}
+            onToggleInterpret={toggleInterpret}
+          />
+          {interpretation && (
+            <div className="flex flex-col gap-2">
+              <p className="caption">
+                {interpretation.explanation}{" "}
+                <span className="font-mono text-[10px]">· {interpretation.method}</span>
+              </p>
+              {queryChips(interpretation.query).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {queryChips(interpretation.query).map((chip) => (
+                    <span
+                      key={chip.id}
+                      className="flex items-center border border-ink text-[11px]"
+                    >
+                      <span className="py-1 pl-2 text-muted-foreground">
+                        {chip.label}:
+                      </span>
+                      <span className="py-1 pr-1 pl-1.5 font-mono">{chip.value}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeChip(chip.id)}
+                        aria-label={`Remove ${chip.label}`}
+                        className="invert-hover self-stretch border-l border-ink px-1.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-4">
             <PresetChips onPick={pickCategory} active={activeCategory} />
             <FilterBar

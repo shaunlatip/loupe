@@ -232,10 +232,10 @@ export const CATEGORIES: Category[] = [
     label: "Nocturne / night",
     group: "Subjects",
     query: {
-      facets: {
-        aic: { subjectName: "Night" },
-        met: { q: "Night", tags: true },
-      },
+      // AIC's "night" subject terms carry ~0 public-domain works (verified:
+      // TM-12702 / TM-13355 / TM-8868 all empty), so a subject facet there
+      // intersects to nothing. Full-text "nocturne" is what actually returns
+      // the Whistler nocturnes at AIC — and serves Met + CMA keyword search.
       q: "nocturne",
     },
   },
