@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Artwork,
   SearchFacets,
@@ -13,10 +13,40 @@ import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
 import PresetChips from "@/components/PresetChips";
-import FilterBar from "@/components/FilterBar";
+import FilterBar, { type SortMode } from "@/components/FilterBar";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import ClaudePanel from "@/components/ClaudePanel";
+
+// "Fits a hero": landscape-ish and big enough to sit full-bleed behind UI —
+// see the Shopify-Editions backdrop use case in AGENTS.md.
+const HERO_MIN_ASPECT = 1.4;
+const HERO_MIN_WIDTH = 2000;
+
+function fitsHero(a: Artwork): boolean {
+  const { width, height } = a.dims ?? {};
+  if (!width || !height) return false;
+  return width / height >= HERO_MIN_ASPECT && width >= HERO_MIN_WIDTH;
+}
+
+/**
+ * Sort composes with the hero filter (filter first, then sort). Works
+ * lacking `color` (Met/CMA, or AIC records AIC itself didn't analyze) sort
+ * to the end rather than dropping out — Array#sort is stable, so within
+ * each group (has-color / no-color) original relative order is preserved.
+ */
+function sortArtworks(list: Artwork[], mode: SortMode): Artwork[] {
+  if (mode === "relevance") return list;
+  const withColor: Artwork[] = [];
+  const withoutColor: Artwork[] = [];
+  for (const a of list) (a.color ? withColor : withoutColor).push(a);
+  withColor.sort((a, b) => {
+    if (mode === "lightest") return b.color!.l - a.color!.l;
+    if (mode === "darkest") return a.color!.l - b.color!.l;
+    return a.color!.h - b.color!.h; // by hue
+  });
+  return [...withColor, ...withoutColor];
+}
 
 interface ResultState {
   artworks: Artwork[];
@@ -127,6 +157,8 @@ export default function Home() {
 
   const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
   const [artist, setArtist] = useState("");
+  const [sort, setSort] = useState<SortMode>("relevance");
+  const [heroOnly, setHeroOnly] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
   const [interpretOn, setInterpretOn] = useState(false);
   const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
@@ -365,6 +397,23 @@ export default function Home() {
     setResults({ artworks, errors: [], origin: "claude", note });
   }, []);
 
+  // Client-side only — filter then sort over the already-fetched results.
+  // Hero rule: dims are only sometimes known, so a work with no usable
+  // width/height can never be *confirmed* hero-fit — it's excluded rather
+  // than guessed into the grid. To keep that exclusion from silently
+  // hollowing out the grid, the count hidden for missing dims is surfaced
+  // as a caption instead of just vanishing.
+  const { displayArtworks, heroHiddenCount } = useMemo(() => {
+    let list = results.artworks;
+    let hiddenForDims = 0;
+    if (heroOnly) {
+      const withDims = list.filter((a) => a.dims?.width && a.dims?.height);
+      hiddenForDims = list.length - withDims.length;
+      list = withDims.filter(fitsHero);
+    }
+    return { displayArtworks: sortArtworks(list, sort), heroHiddenCount: hiddenForDims };
+  }, [results.artworks, sort, heroOnly]);
+
   return (
     <>
       <main
@@ -437,6 +486,10 @@ export default function Home() {
               onToggle={toggleSource}
               artist={artist}
               onArtist={setArtist}
+              sort={sort}
+              onSort={setSort}
+              heroOnly={heroOnly}
+              onHeroToggle={() => setHeroOnly((v) => !v)}
             />
           </div>
         </header>
@@ -456,15 +509,23 @@ export default function Home() {
 
         <div className="pt-8">
           {searched || results.artworks.length > 0 ? (
-            <ResultGrid
-              artworks={results.artworks}
-              errors={results.errors}
-              note={results.note}
-              onOpen={(a) => {
-                setSaveOpen(false);
-                setOpen(a);
-              }}
-            />
+            <>
+              {heroOnly && heroHiddenCount > 0 && (
+                <p className="caption mb-4">
+                  Fits-a-hero hides {heroHiddenCount}{" "}
+                  {heroHiddenCount === 1 ? "work" : "works"} with unknown dimensions.
+                </p>
+              )}
+              <ResultGrid
+                artworks={displayArtworks}
+                errors={results.errors}
+                note={results.note}
+                onOpen={(a) => {
+                  setSaveOpen(false);
+                  setOpen(a);
+                }}
+              />
+            </>
           ) : (
             <p className="caption py-24 text-center">
               Search the open collections, pick a category, or ask the curator.

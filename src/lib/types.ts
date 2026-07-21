@@ -22,6 +22,8 @@ export interface Artwork {
   medium?: string;
   /** px of hires when known */
   dims?: { width?: number; height?: number };
+  /** dominant color (HSL); AIC-only — Met/CMA leave this undefined */
+  color?: { h: number; s: number; l: number };
 }
 
 /**

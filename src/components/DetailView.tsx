@@ -66,6 +66,23 @@ export default function DetailView({
               <dt className="caption">License</dt>
               <dd className="font-mono text-[13px]">{artwork.license}</dd>
             </div>
+            {artwork.color && (
+              <div>
+                <dt className="caption">Dominant color</dt>
+                <dd className="flex items-center gap-2 text-[13px]">
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 border border-ink"
+                    style={{
+                      backgroundColor: `hsl(${artwork.color.h} ${artwork.color.s}% ${artwork.color.l}%)`,
+                    }}
+                  />
+                  <span className="font-mono">
+                    hsl({artwork.color.h}, {artwork.color.s}%, {artwork.color.l}%)
+                  </span>
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="caption">Source</dt>
               <dd className="text-[13px]">

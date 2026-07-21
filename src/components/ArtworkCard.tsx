@@ -29,7 +29,18 @@ export default function ArtworkCard({
           <span className="text-[14px] leading-tight font-medium">
             {artwork.title}
           </span>
-          <SourceBadge source={artwork.source} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            {artwork.color && (
+              <span
+                aria-hidden
+                className="h-3 w-3 border border-ink"
+                style={{
+                  backgroundColor: `hsl(${artwork.color.h} ${artwork.color.s}% ${artwork.color.l}%)`,
+                }}
+              />
+            )}
+            <SourceBadge source={artwork.source} />
+          </div>
         </div>
         <span className="caption">
           {artwork.artist}
