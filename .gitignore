@@ -6,7 +6,9 @@ build/
 next-env.d.ts
 
 # runtime state — collections + settings live here, never committed
-data/
+# (anchored to root — src/data/ holds committed static artifacts, e.g. the
+# Wikidata artist-movements lookup, and must NOT be swept up by this rule)
+/data/
 
 # env
 .env*.local

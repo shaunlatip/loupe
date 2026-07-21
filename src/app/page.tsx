@@ -10,6 +10,7 @@ import type {
   SourceId,
 } from "@/lib/types";
 import { peekCalm, requestCalmForAll, subscribeCalm } from "@/lib/calm-client";
+import { enrichArtworksWithMovements } from "@/lib/movements";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
@@ -175,6 +176,11 @@ export default function Home() {
   const [artist, setArtist] = useState("");
   const [sort, setSort] = useState<SortMode>("relevance");
   const [heroOnly, setHeroOnly] = useState(false);
+  // Movement chips are derived from the current results (see the memo
+  // below), not a fixed taxonomy — this only holds which of *those* are
+  // toggled on. Multi-select = union (show works matching ANY selected
+  // movement), same as ticking multiple source checkboxes.
+  const [activeMovements, setActiveMovements] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
   const [interpretOn, setInterpretOn] = useState(false);
   const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
@@ -206,6 +212,7 @@ export default function Home() {
       setLoading(true);
       setSearched(true);
       setActiveCollection(undefined);
+      setActiveMovements([]);
       try {
         const res = await fetch(`/api/search?${params}`);
         const json = (await res.json()) as SearchResponse;
@@ -225,6 +232,7 @@ export default function Home() {
       setLoading(true);
       setSearched(true);
       setActiveCollection(undefined);
+      setActiveMovements([]);
       try {
         const res = await fetch("/api/search", {
           method: "POST",
@@ -318,6 +326,12 @@ export default function Home() {
     );
   }, []);
 
+  const toggleMovement = useCallback((m: string) => {
+    setActiveMovements((prev) =>
+      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m],
+    );
+  }, []);
+
   // — collections —
 
   const collectionSummaries = collections.map((c) => ({
@@ -367,6 +381,7 @@ export default function Home() {
       setActiveCategory(undefined);
       setInterpretation(null);
       setActiveCollection(id);
+      setActiveMovements([]);
       setResults({
         artworks: c.artworks,
         errors: [],
@@ -420,27 +435,51 @@ export default function Home() {
     setActiveCategory(undefined);
     setInterpretation(null);
     setActiveCollection(undefined);
+    setActiveMovements([]);
     setResults({ artworks, errors: [], origin: "claude", note });
   }, []);
 
-  // Client-side only — filter then sort over the already-fetched results.
+  // Client-side only — enrich, filter, then sort over the already-fetched
+  // results. Enrichment (the Wikidata artist→movement join, see
+  // src/lib/movements.ts) runs first so every downstream consumer — the
+  // movement chip row, the movement filter, and DetailView (which receives
+  // whichever artwork object was clicked out of displayArtworks) — sees
+  // `movements` whether the source is AIC, Met, or CMA.
+  //
   // Hero rule: dims are only sometimes known, so a work with no usable
   // width/height can never be *confirmed* hero-fit — it's excluded rather
   // than guessed into the grid. To keep that exclusion from silently
   // hollowing out the grid, the count hidden for missing dims is surfaced
   // as a caption instead of just vanishing.
-  const { displayArtworks, heroHiddenCount } = useMemo(() => {
-    let list = results.artworks;
+  //
+  // Movement chips are derived from the hero-filtered list (what's actually
+  // browsable right now) and only rendered when non-empty; multi-select is
+  // a union (OR) — a work matching any selected movement stays in.
+  const { displayArtworks, heroHiddenCount, availableMovements } = useMemo(() => {
+    let list = enrichArtworksWithMovements(results.artworks);
     let hiddenForDims = 0;
     if (heroOnly) {
       const withDims = list.filter((a) => a.dims?.width && a.dims?.height);
       hiddenForDims = list.length - withDims.length;
       list = withDims.filter(fitsHero);
     }
-    return { displayArtworks: sortArtworks(list, sort), heroHiddenCount: hiddenForDims };
+
+    const movementSet = new Set<string>();
+    for (const a of list) for (const m of a.movements ?? []) movementSet.add(m);
+    const availableMovements = Array.from(movementSet).sort();
+
+    if (activeMovements.length > 0) {
+      list = list.filter((a) => a.movements?.some((m) => activeMovements.includes(m)));
+    }
+
+    return {
+      displayArtworks: sortArtworks(list, sort),
+      heroHiddenCount: hiddenForDims,
+      availableMovements,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- calmTick forces
     // a re-sort as lazily-computed scores resolve; it carries no data itself.
-  }, [results.artworks, sort, heroOnly, calmTick]);
+  }, [results.artworks, sort, heroOnly, activeMovements, calmTick]);
 
   return (
     <>
@@ -518,6 +557,9 @@ export default function Home() {
               onSort={setSort}
               heroOnly={heroOnly}
               onHeroToggle={() => setHeroOnly((v) => !v)}
+              movements={availableMovements}
+              activeMovements={activeMovements}
+              onToggleMovement={toggleMovement}
             />
           </div>
         </header>

@@ -30,6 +30,9 @@ export default function FilterBar({
   onSort,
   heroOnly,
   onHeroToggle,
+  movements,
+  activeMovements,
+  onToggleMovement,
 }: {
   sources: SourceId[];
   enabled: SourceId[];
@@ -40,6 +43,11 @@ export default function FilterBar({
   onSort: (s: SortMode) => void;
   heroOnly: boolean;
   onHeroToggle: () => void;
+  /** movements present across the current results — derived, not a fixed
+   * taxonomy; row only renders when non-empty. See src/lib/movements.ts. */
+  movements: string[];
+  activeMovements: string[];
+  onToggleMovement: (movement: string) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -102,6 +110,27 @@ export default function FilterBar({
       >
         Fits a hero
       </button>
+      {movements.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="caption">Movement</span>
+          {movements.map((m) => {
+            const active = activeMovements.includes(m);
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onToggleMovement(m)}
+                aria-pressed={active}
+                className={`border border-ink px-2 py-1 text-[11px] ${
+                  active ? "bg-accent text-paper" : "invert-hover"
+                }`}
+              >
+                {m}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -24,6 +24,16 @@ export interface Artwork {
   dims?: { width?: number; height?: number };
   /** dominant color (HSL); AIC-only — Met/CMA leave this undefined */
   color?: { h: number; s: number; l: number };
+  /**
+   * Art movement(s), e.g. "Impressionism". Only AIC has a native movement
+   * facet (facets.aic.styleName) at query time; this field instead carries
+   * a client-side join result populated for every source (including AIC) by
+   * matching `artist` against the static Wikidata (P135) lookup in
+   * src/lib/movements.ts — never fetched at runtime. This is what ships
+   * movement precision to Met/CMA/Rijks, which have no movement field at
+   * all. Absent when the name join has no match.
+   */
+  movements?: string[];
 }
 
 /**

@@ -75,6 +75,19 @@ export default function DetailView({
           <p className="mt-1 text-[15px]">{artwork.artist}</p>
           <p className="caption mt-1">{artwork.date}</p>
 
+          {artwork.movements && artwork.movements.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {artwork.movements.map((m) => (
+                <span
+                  key={m}
+                  className="caption border border-ink px-2 py-1 text-accent"
+                >
+                  {m}
+                </span>
+              ))}
+            </div>
+          )}
+
           <dl className="mt-8 flex flex-col gap-3 border-t border-ink pt-4">
             {artwork.medium && (
               <div>
