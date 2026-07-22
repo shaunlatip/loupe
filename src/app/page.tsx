@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Artwork,
   SearchFacets,
@@ -11,11 +11,12 @@ import type {
 } from "@/lib/types";
 import { peekCalm, requestCalmForAll, subscribeCalm } from "@/lib/calm-client";
 import { enrichArtworksWithMovements } from "@/lib/movements";
+import { mergeCategoryQueries } from "@/lib/presets";
+import { type HSL, colorDistance } from "@/lib/color";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
-import PresetChips from "@/components/PresetChips";
-import FilterBar, { type SortMode } from "@/components/FilterBar";
+import FilterRow, { type SortMode } from "@/components/FilterRow";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import ClaudePanel from "@/components/ClaudePanel";
@@ -45,8 +46,21 @@ function fitsHero(a: Artwork): boolean {
  * and each resolving score re-runs this sort so the grid settles into
  * calmest-first order progressively rather than jumping once at the end.
  */
-function sortArtworks(list: Artwork[], mode: SortMode): Artwork[] {
+function sortArtworks(list: Artwork[], mode: SortMode, target?: HSL): Artwork[] {
   if (mode === "relevance") return list;
+  if (mode === "similar") {
+    // Rank by perceptual closeness to the picked color. Only AIC carries a
+    // dominant color; works without one can't be ranked, so — like the other
+    // color sorts below — they fall to the end (stable within their group).
+    if (!target) return list;
+    const withColor: Artwork[] = [];
+    const withoutColor: Artwork[] = [];
+    for (const a of list) (a.color ? withColor : withoutColor).push(a);
+    withColor.sort(
+      (a, b) => colorDistance(a.color!, target) - colorDistance(b.color!, target),
+    );
+    return [...withColor, ...withoutColor];
+  }
   if (mode === "calmest") {
     const scored: Artwork[] = [];
     const unscored: Artwork[] = [];
@@ -158,11 +172,58 @@ function removeQueryField(query: SearchQuery, chipId: string): SearchQuery {
   return next;
 }
 
-// Rijksmuseum is omitted: its classic keyed API is deprecated (key issuance
-// retired) and the keyless replacement returns only Linked-Art IRIs. The
-// adapter stays registered but dormant; re-add "rijks" here if a key returns.
-const ALL_SOURCES: SourceId[] = ["aic", "cma", "met"];
+// SMK and Mia are keyless and always on. Two sources stay registered-but-
+// dormant and are omitted here until their key exists (same pattern): Rijks
+// (classic keyed API deprecated, keyless replacement returns only Linked-Art
+// IRIs) and Harvard (needs a free HARVARD_API_KEY; its enabled() gate is
+// false without one). Add "harvard" / "rijks" here once the key lands.
+const ALL_SOURCES: SourceId[] = ["aic", "cma", "met", "smk", "mia"];
 const EMPTY: ResultState = { artworks: [], errors: [], origin: "manual" };
+
+/**
+ * POST an export request and save the streamed response as a file — the server
+ * fetches the images and hands back an image (one work) or a zip (many); the
+ * browser download works the same on localhost and on a deployed host. Returns
+ * a status line for the export note.
+ */
+async function triggerDownload(body: {
+  artworks?: Artwork[];
+  collectionId?: string;
+}): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch("/api/export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return "Download failed";
+  }
+  if (!res.ok) {
+    try {
+      const j = (await res.json()) as { error?: string };
+      return j.error ?? "Download failed";
+    } catch {
+      return "Download failed";
+    }
+  }
+  const cd = res.headers.get("content-disposition") ?? "";
+  const filename = /filename="(.+?)"/.exec(cd)?.[1] ?? "loupe-export";
+  const failed = Number(res.headers.get("x-export-failed") ?? "0");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return failed > 0
+    ? `Downloaded ${filename} — ${failed} image${failed === 1 ? "" : "s"} unavailable`
+    : `Downloaded ${filename}`;
+}
 
 export default function Home() {
   const [results, setResults] = useState<ResultState>(EMPTY);
@@ -176,12 +237,17 @@ export default function Home() {
   const [artist, setArtist] = useState("");
   const [sort, setSort] = useState<SortMode>("relevance");
   const [heroOnly, setHeroOnly] = useState(false);
+  // Picked target color for search-by-color; when set, sort is "similar".
+  const [targetColor, setTargetColor] = useState<HSL | undefined>();
   // Movement chips are derived from the current results (see the memo
   // below), not a fixed taxonomy — this only holds which of *those* are
   // toggled on. Multi-select = union (show works matching ANY selected
   // movement), same as ticking multiple source checkboxes.
   const [activeMovements, setActiveMovements] = useState<string[]>([]);
-  const [activeCategory, setActiveCategory] = useState<string | undefined>();
+  // Taxonomy selections across every group (Movements/Periods/Subjects/…).
+  // Multiple compose as an intersection via mergeCategoryQueries — see
+  // runCategories below. Single-select is just the length-1 case.
+  const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [interpretOn, setInterpretOn] = useState(false);
   const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
 
@@ -226,9 +292,16 @@ export default function Home() {
     [],
   );
 
-  // POST a full SearchQuery (interpret mode + chip edits) — same fanout as GET
+  // Latest-wins guard: multi-select taxonomy can fire overlapping searches as
+  // the user ticks several categories in a row; only the newest response is
+  // allowed to land so an earlier, slower fanout can't overwrite it.
+  const reqSeq = useRef(0);
+
+  // POST a full SearchQuery (interpret mode + chip edits + taxonomy merge) —
+  // same fanout as GET
   const runQuerySearch = useCallback(
     async (query: SearchQuery) => {
+      const myId = ++reqSeq.current;
       setLoading(true);
       setSearched(true);
       setActiveCollection(undefined);
@@ -240,11 +313,13 @@ export default function Home() {
           body: JSON.stringify({ query, sources }),
         });
         const json = (await res.json()) as SearchResponse;
+        if (reqSeq.current !== myId) return; // superseded
         setResults({ ...json, origin: "manual" });
       } catch {
+        if (reqSeq.current !== myId) return;
         setResults({ ...EMPTY, origin: "manual" });
       } finally {
-        setLoading(false);
+        if (reqSeq.current === myId) setLoading(false);
       }
     },
     [sources],
@@ -252,7 +327,7 @@ export default function Home() {
 
   const runInterpret = useCallback(
     async (q: string) => {
-      setActiveCategory(undefined);
+      setActiveCategories([]);
       setLoading(true);
       setSearched(true);
       // the route itself degrades; this is only for network-level failure
@@ -284,7 +359,7 @@ export default function Home() {
         return;
       }
       setInterpretation(null);
-      setActiveCategory(undefined);
+      setActiveCategories([]);
       const params = new URLSearchParams({ q, sources: sources.join(",") });
       if (artist.trim()) params.set("artist", artist.trim());
       void fetchResults(params, "manual");
@@ -302,22 +377,38 @@ export default function Home() {
     [interpretation, runQuerySearch],
   );
 
-  const toggleInterpret = useCallback(() => {
-    setInterpretOn((v) => !v);
+  const setInterpretMode = useCallback((on: boolean) => {
+    setInterpretOn(on);
     setInterpretation(null); // entering has no chips yet; leaving clears them
   }, []);
 
-  const pickCategory = useCallback(
-    (id: string) => {
+  // Run the intersection of a taxonomy selection set. Empty set clears back to
+  // the prompt (the last filter was removed); otherwise the merged query fans
+  // out. A taxonomy pick IS the query, so this owns the results.
+  const runCategories = useCallback(
+    (ids: string[]) => {
       setInterpretation(null);
-      setActiveCategory(id);
-      const params = new URLSearchParams({
-        category: id,
-        sources: sources.join(","),
-      });
-      void fetchResults(params, "manual");
+      setActiveCollection(undefined);
+      if (ids.length === 0) {
+        reqSeq.current++; // cancel any in-flight taxonomy fetch
+        setResults(EMPTY);
+        setSearched(false);
+        return;
+      }
+      void runQuerySearch(mergeCategoryQueries(ids));
     },
-    [sources, fetchResults],
+    [runQuerySearch],
+  );
+
+  const toggleCategory = useCallback(
+    (id: string) => {
+      const next = activeCategories.includes(id)
+        ? activeCategories.filter((x) => x !== id)
+        : [...activeCategories, id];
+      setActiveCategories(next);
+      runCategories(next);
+    },
+    [activeCategories, runCategories],
   );
 
   const toggleSource = useCallback((s: SourceId) => {
@@ -330,6 +421,24 @@ export default function Home() {
     setActiveMovements((prev) =>
       prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m],
     );
+  }, []);
+
+  // Picking a color IS choosing the "similar" sort; clearing reverts to
+  // relevance. Choosing any other sort explicitly drops the color so the row
+  // never shows a picked color that isn't actually driving the order.
+  const pickColor = useCallback((c: HSL) => {
+    setTargetColor(c);
+    setSort("similar");
+  }, []);
+
+  const clearColor = useCallback(() => {
+    setTargetColor(undefined);
+    setSort((s) => (s === "similar" ? "relevance" : s));
+  }, []);
+
+  const chooseSort = useCallback((m: SortMode) => {
+    setSort(m);
+    if (m !== "similar") setTargetColor(undefined);
   }, []);
 
   // — collections —
@@ -378,7 +487,7 @@ export default function Home() {
       const c = collections.find((x) => x.id === id);
       if (!c) return;
       setSearched(true);
-      setActiveCategory(undefined);
+      setActiveCategories([]);
       setInterpretation(null);
       setActiveCollection(id);
       setActiveMovements([]);
@@ -396,24 +505,7 @@ export default function Home() {
     setExporting(id);
     setExportNote(undefined);
     try {
-      const res = await fetch("/api/export", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ collectionId: id }),
-      });
-      const json = (await res.json()) as {
-        dir?: string;
-        results?: { ok: boolean }[];
-        error?: string;
-      };
-      if (json.dir) {
-        const ok = json.results?.filter((r) => r.ok).length ?? 0;
-        setExportNote(`Exported ${ok} works to ${json.dir}`);
-      } else {
-        setExportNote(json.error ?? "Export failed");
-      }
-    } catch {
-      setExportNote("Export failed");
+      setExportNote(await triggerDownload({ collectionId: id }));
     } finally {
       setExporting(undefined);
     }
@@ -421,18 +513,12 @@ export default function Home() {
 
   const exportOne = useCallback(async (artwork: Artwork) => {
     setExportNote(undefined);
-    const res = await fetch("/api/export", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ artworks: [artwork] }),
-    });
-    const json = (await res.json()) as { dir?: string; error?: string };
-    setExportNote(json.dir ? `Exported to ${json.dir}` : (json.error ?? "Export failed"));
+    setExportNote(await triggerDownload({ artworks: [artwork] }));
   }, []);
 
   const onSelection = useCallback((artworks: Artwork[], note: string) => {
     setSearched(true);
-    setActiveCategory(undefined);
+    setActiveCategories([]);
     setInterpretation(null);
     setActiveCollection(undefined);
     setActiveMovements([]);
@@ -455,7 +541,8 @@ export default function Home() {
   // Movement chips are derived from the hero-filtered list (what's actually
   // browsable right now) and only rendered when non-empty; multi-select is
   // a union (OR) — a work matching any selected movement stays in.
-  const { displayArtworks, heroHiddenCount, availableMovements } = useMemo(() => {
+  const { displayArtworks, heroHiddenCount, availableMovements, colorlessCount } =
+    useMemo(() => {
     let list = enrichArtworksWithMovements(results.artworks);
     let hiddenForDims = 0;
     if (heroOnly) {
@@ -472,19 +559,27 @@ export default function Home() {
       list = list.filter((a) => a.movements?.some((m) => activeMovements.includes(m)));
     }
 
+    // Under color ranking, how many of the shown works have no color to rank
+    // by (they sort last) — surfaced as a caption so the tail isn't a mystery.
+    const colorlessCount =
+      sort === "similar" && targetColor
+        ? list.filter((a) => !a.color).length
+        : 0;
+
     return {
-      displayArtworks: sortArtworks(list, sort),
+      displayArtworks: sortArtworks(list, sort, targetColor),
       heroHiddenCount: hiddenForDims,
       availableMovements,
+      colorlessCount,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- calmTick forces
     // a re-sort as lazily-computed scores resolve; it carries no data itself.
-  }, [results.artworks, sort, heroOnly, activeMovements, calmTick]);
+  }, [results.artworks, sort, heroOnly, activeMovements, targetColor, calmTick]);
 
   return (
     <>
       <main
-        className={`mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-120 ${
+        className={`mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-200 ease-out ${
           panelOpen ? "lg:mr-[420px]" : ""
         }`}
       >
@@ -496,7 +591,24 @@ export default function Home() {
             </h1>
             <div className="flex items-center gap-3">
               <p className="caption hidden lg:block">
-                Open-access museum art · CC0 / public domain
+                Search open-access museum art · Built by{" "}
+                <a
+                  href="https://latip.me"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-ink"
+                >
+                  Shaun Latip
+                </a>{" "}
+                ·{" "}
+                <a
+                  href="https://github.com/shaunlatip/loupe"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-ink"
+                >
+                  GitHub
+                </a>
               </p>
               <button
                 onClick={() => setPanelOpen((v) => !v)}
@@ -512,7 +624,7 @@ export default function Home() {
             onSearch={runSearch}
             loading={loading}
             interpret={interpretOn}
-            onToggleInterpret={toggleInterpret}
+            onSetInterpret={setInterpretMode}
           />
           {interpretation && (
             <div className="flex flex-col gap-2">
@@ -545,23 +657,25 @@ export default function Home() {
               )}
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <PresetChips onPick={pickCategory} active={activeCategory} />
-            <FilterBar
-              sources={ALL_SOURCES}
-              enabled={sources}
-              onToggle={toggleSource}
-              artist={artist}
-              onArtist={setArtist}
-              sort={sort}
-              onSort={setSort}
-              heroOnly={heroOnly}
-              onHeroToggle={() => setHeroOnly((v) => !v)}
-              movements={availableMovements}
-              activeMovements={activeMovements}
-              onToggleMovement={toggleMovement}
-            />
-          </div>
+          <FilterRow
+            sources={ALL_SOURCES}
+            enabled={sources}
+            onToggleSource={toggleSource}
+            activeCategories={activeCategories}
+            onToggleCategory={toggleCategory}
+            artist={artist}
+            onArtist={setArtist}
+            sort={sort}
+            onSort={chooseSort}
+            heroOnly={heroOnly}
+            onHeroToggle={() => setHeroOnly((v) => !v)}
+            targetColor={targetColor}
+            onPickColor={pickColor}
+            onClearColor={clearColor}
+            movements={availableMovements}
+            activeMovements={activeMovements}
+            onToggleMovement={toggleMovement}
+          />
         </header>
 
         <div className="border-b border-ink py-3">
@@ -573,7 +687,9 @@ export default function Home() {
             exporting={exporting}
           />
           {exportNote && (
-            <p className="caption mt-2 font-mono text-[10px]">{exportNote}</p>
+            <p className="caption animate-fade mt-2 font-mono text-[10px]">
+              {exportNote}
+            </p>
           )}
         </div>
 
@@ -584,6 +700,14 @@ export default function Home() {
                 <p className="caption mb-4">
                   Fits-a-hero hides {heroHiddenCount}{" "}
                   {heroHiddenCount === 1 ? "work" : "works"} with unknown dimensions.
+                </p>
+              )}
+              {sort === "similar" && colorlessCount > 0 && (
+                <p className="caption mb-4">
+                  Color ranking uses dominant-color data (AIC, SMK, Harvard) —{" "}
+                  {colorlessCount}{" "}
+                  {colorlessCount === 1 ? "work has" : "works have"} none and sort
+                  last.
                 </p>
               )}
               <ResultGrid
@@ -626,7 +750,7 @@ export default function Home() {
                   onClick={() => void exportOne(open)}
                   className="invert-hover flex-1 border border-ink px-4 py-2 text-[13px] font-semibold"
                 >
-                  Export
+                  Download
                 </button>
               </div>
               {saveOpen && (
@@ -638,7 +762,9 @@ export default function Home() {
                 />
               )}
               {exportNote && (
-                <p className="caption font-mono text-[10px]">{exportNote}</p>
+                <p className="caption animate-fade font-mono text-[10px]">
+                  {exportNote}
+                </p>
               )}
             </>
           }

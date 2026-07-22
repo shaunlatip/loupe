@@ -38,6 +38,9 @@ Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }`
 - **`cma.ts`** — Cleveland (keyless). `facets.cma` → `type`/`technique`/`department`/`culture` (free-text, substring-y) / `created_after`/`created_before`; `facets.cma.q` merges into CMA's `q` param (CMA has no subject facet — the per-source keyword stands in for one).
 - **`met.ts`** — The Met (keyless, two-step: `/search` returns objectIDs → hydrate each `/objects/{id}`, capped at 50, concurrency 8, filter `isPublicDomain` post-hydration). `facets.met` → `departmentId`/`medium` (pipe-delim)/`geoLocation`/`dateBegin`+`dateEnd` (pair)/`tags`; `facets.met.q` merges into the query. **Met's public API intermittently 403s (Cloudflare/rate-limit) — non-fatal, lands in `errors[]`.**
 - **`rijks.ts`** — Rijksmuseum. **Dormant.** `enabled()` returns false without `RIJKSMUSEUM_API_KEY`, and the classic keyed API's key issuance has been retired (the keyless replacement returns only Linked-Art IRIs needing multi-hop dereferencing — see § Known issues). Removed from the UI source list; adapter kept registered so it re-lights if a key ever returns.
+- **`smk.ts`** — Statens Museum for Kunst, Denmark (keyless). CC0/public-domain + has-image baked into the `filters` param. Native hi-res over IIIF (`image_native`), pixel dims, and a `colors[]` hex palette → `Artwork.color` (via `hexToHsl` in `color.ts`), so SMK joins AIC in the color sort. Filter *values* are Danish: `facets.smk` → `objectName` (`object_names:maleri` = painting) / `nationality` (`creator_nationality:hollandsk` = Dutch) / `technique` / `q` (merged into the `keys` search). Date range is filtered client-side (SMK's `range_filters` syntax is unreliable). `getById` via `?object_number=`.
+- **`mia.ts`** — Minneapolis Institute of Art (keyless, **unofficial** ES endpoint `search.artsmia.org`). The path segment is a Lucene query; `image:valid AND public_access:1 AND rights_type:"Public Domain"` are ANDed in server-side. `facets.mia` → `classification` (`"Paintings"`) / `department` / `country` / `q`; artist becomes a scoped `artist:"…"` term. Records carry **no** image URL — thumb (`_800`) and hi-res (`_full`) are constructed from `Cache_Location` + `Primary_RenditionNumber` against the live CDN `img.artsmia.org` (the documented `api.artsmia.org` / `iiif.dx.artsmia.org` hosts are dead).
+- **`harvard.ts`** — Harvard Art Museums. **Dormant** like rijks — `enabled()` returns false without `HARVARD_API_KEY` (free, form-issued; see `.env.example`). Per-record rights via `imagepermissionlevel=0` (freely reusable). `people` → artist, `colors[0]` → `Artwork.color`, images over IIIF (`images[].iiifbaseuri`). `facets.harvard` → `classification` / `century` / `culture` / `medium` / `q`. 2,500 req/day. Registered but omitted from the UI list until a key lands (add `"harvard"` to `ALL_SOURCES` in `page.tsx`).
 
 ### Category taxonomy (`src/lib/presets.ts`)
 
@@ -60,14 +63,15 @@ src/app/
   api/{search,agent,interpret,collections,export,settings}/route.ts
 src/lib/
   types.ts                  Artwork · SearchQuery · SearchFacets · SourceAdapter
-  adapters/{index,aic,cma,met,rijks}.ts
+  adapters/{index,aic,cma,met,rijks,smk,mia,harvard}.ts
+  color.ts                  HSL/HSV/OKLab math + hexToHsl (color sort + picker)
   presets.ts                CATEGORIES taxonomy (misnamed file — it's categories now)
   vocab.ts                  shared vibe vocabulary (curator prompt + /api/interpret fast path)
   search-schema.ts          strict zod mirror of SearchQuery (POST /api/search + interpret)
   agent/{tools,session? ,prompt}.ts   curator MCP tools + system prompt (vocab section rendered from vocab.ts)
   collections.ts settings.ts export.ts
 src/components/
-  SearchBar PresetChips FilterBar ResultGrid ArtworkCard SourceBadge
+  SearchBar FilterRow Dropdown ColorPicker ResultGrid ArtworkCard SourceBadge
   DetailView SaveMenu CollectionsBar ClaudePanel
   ui/                       shadcn chat bits (Bubble, Marker, …) — curator only
 ```

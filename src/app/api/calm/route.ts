@@ -8,6 +8,9 @@ const ALLOWED_HOSTS = new Set([
   "www.artic.edu",
   "openaccess-cdn.clevelandart.org",
   "images.metmuseum.org",
+  "iip-thumb.smk.dk", // SMK thumbnails
+  "img.artsmia.org", // Mia thumbnails
+  "ids.lib.harvard.edu", // Harvard IIIF thumbnails (dormant until key)
 ]);
 
 export async function GET(req: NextRequest) {

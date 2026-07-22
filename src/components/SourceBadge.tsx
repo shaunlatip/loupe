@@ -5,6 +5,9 @@ const LABELS: Record<SourceId, string> = {
   cma: "Cleveland Museum of Art",
   met: "The Met",
   rijks: "Rijksmuseum",
+  smk: "Statens Museum for Kunst",
+  mia: "Minneapolis Institute of Art",
+  harvard: "Harvard Art Museums",
 };
 
 const SHORT: Record<SourceId, string> = {
@@ -12,6 +15,9 @@ const SHORT: Record<SourceId, string> = {
   cma: "CMA",
   met: "Met",
   rijks: "Rijks",
+  smk: "SMK",
+  mia: "Mia",
+  harvard: "Harvard",
 };
 
 export function sourceLabel(source: SourceId): string {

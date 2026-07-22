@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
 const postBodySchema = z
   .object({
     query: searchQuerySchema,
-    sources: z.array(z.enum(["aic", "cma", "met", "rijks"])).optional(),
+    sources: z
+      .array(z.enum(["aic", "cma", "met", "rijks", "smk", "mia", "harvard"]))
+      .optional(),
   })
   .strict();
 

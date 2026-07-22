@@ -94,3 +94,82 @@ body {
   background: var(--color-ink);
   color: var(--color-paper);
 }
+
+/*
+ * Motion — kept deliberately restrained to suit the flat museum register:
+ * short, no bounce, opacity + a few px of travel. Never a layout-shifting
+ * property (width/height/top). All guarded by prefers-reduced-motion below.
+ */
+
+/* Dropdown / menu reveal — a crisp downward settle from the trigger edge */
+@keyframes loupe-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-pop {
+  animation: loupe-pop 120ms ease-out;
+  transform-origin: top;
+}
+
+/* Grid card entrance — a plain fade so masonry never reflows on reveal */
+@keyframes loupe-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade {
+  animation: loupe-fade 220ms ease-out both;
+}
+
+/* Drawer reveal — slides in from the right edge it's docked to, so the
+ * Curator panel enters as one gesture with the main content's margin shift
+ * (both 200ms ease-out) rather than snapping in beside a gliding page. */
+@keyframes loupe-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-slide-in {
+  animation: loupe-slide-in 200ms ease-out;
+  transform-origin: right;
+}
+
+/* Full-screen detail takeover — a faint settle (opacity + a hair of scale,
+ * never scale(0)) so the modal doesn't flash in over the grid. */
+@keyframes loupe-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-modal-in {
+  animation: loupe-modal-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop,
+  .animate-fade,
+  .animate-slide-in,
+  .animate-modal-in {
+    animation: none;
+  }
+  .invert-hover {
+    transition: none;
+  }
+}

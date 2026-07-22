@@ -53,12 +53,43 @@ const rijksFacetsSchema = z
   })
   .strict();
 
+const smkFacetsSchema = z
+  .object({
+    objectName: z.string().optional(),
+    nationality: z.string().optional(),
+    technique: z.string().optional(),
+    q: z.string().optional(),
+  })
+  .strict();
+
+const miaFacetsSchema = z
+  .object({
+    classification: z.string().optional(),
+    department: z.string().optional(),
+    country: z.string().optional(),
+    q: z.string().optional(),
+  })
+  .strict();
+
+const harvardFacetsSchema = z
+  .object({
+    classification: z.string().optional(),
+    century: z.string().optional(),
+    culture: z.string().optional(),
+    medium: z.string().optional(),
+    q: z.string().optional(),
+  })
+  .strict();
+
 export const searchFacetsSchema = z
   .object({
     aic: aicFacetsSchema.optional(),
     cma: cmaFacetsSchema.optional(),
     met: metFacetsSchema.optional(),
     rijks: rijksFacetsSchema.optional(),
+    smk: smkFacetsSchema.optional(),
+    mia: miaFacetsSchema.optional(),
+    harvard: harvardFacetsSchema.optional(),
   })
   .strict();
 

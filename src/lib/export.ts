@@ -1,32 +1,44 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { Buffer } from "node:buffer";
 import type { Artwork, SourceId } from "@/lib/types";
 import { getCollection, slugify } from "@/lib/collections";
-import { getSettings } from "@/lib/settings";
+import { createZip, type ZipEntry } from "@/lib/zip";
+
+/**
+ * Export builds the download IN MEMORY and hands it back to the route, which
+ * streams it to the browser (Content-Disposition: attachment). Nothing touches
+ * the server filesystem, so this works identically on localhost and on a
+ * read-only serverless host like Vercel. A single work downloads as the bare
+ * image; a collection downloads as a zip of images + per-work sidecar JSON + an
+ * ATTRIBUTION.md.
+ */
 
 const MUSEUM_LABELS: Record<SourceId, string> = {
   aic: "Art Institute of Chicago",
   cma: "Cleveland Museum of Art",
   met: "The Met",
   rijks: "Rijksmuseum",
+  smk: "Statens Museum for Kunst",
+  mia: "Minneapolis Institute of Art",
+  harvard: "Harvard Art Museums",
 };
 
 export interface ExportItemResult {
   id: string;
   ok: boolean;
-  file?: string;
   error?: string;
-}
-
-export interface ExportResult {
-  dir: string;
-  results: ExportItemResult[];
 }
 
 export interface ExportRequest {
   artworks?: Artwork[];
   collectionId?: string;
-  destDir?: string;
+}
+
+export interface DownloadResult {
+  filename: string;
+  contentType: string;
+  body: Buffer;
+  /** per-artwork fetch outcome — the route can surface partial failures */
+  results: ExportItemResult[];
 }
 
 function fileBaseName(artwork: Artwork): string {
@@ -36,60 +48,44 @@ function fileBaseName(artwork: Artwork): string {
     `${artwork.source}-${slugify(artwork.nativeId)}`,
   ];
   let base = parts.join("--");
-  if (base.length > 120) {
-    base = base.slice(0, 120).replace(/-+$/, "");
-  }
+  if (base.length > 120) base = base.slice(0, 120).replace(/-+$/, "");
   return base;
 }
 
-function imageExtension(url: string): string {
-  const pathname = url.split("?")[0].toLowerCase();
-  return pathname.endsWith(".png") ? "png" : "jpg";
+function imageExtension(url: string): "png" | "jpg" {
+  return url.split("?")[0].toLowerCase().endsWith(".png") ? "png" : "jpg";
 }
 
-async function downloadArtwork(
-  artwork: Artwork,
-  dir: string,
-  downloadedAt: string
-): Promise<ExportItemResult> {
-  try {
-    const res = await fetch(artwork.imageHires, {
-      headers: {
-        // Some IIIF servers (AIC) 403 requests without a browser-ish UA.
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
-        accept: "image/*,*/*;q=0.8",
-      },
-    });
-    if (!res.ok) {
-      return { id: artwork.id, ok: false, error: `HTTP ${res.status}` };
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const base = fileBaseName(artwork);
-    const file = `${base}.${imageExtension(artwork.imageHires)}`;
-    await fs.writeFile(path.join(dir, file), buffer);
+async function fetchImage(artwork: Artwork): Promise<Uint8Array> {
+  const res = await fetch(artwork.imageHires, {
+    headers: {
+      // Some IIIF servers (AIC) 403 requests without a browser-ish UA.
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
+      accept: "image/*,*/*;q=0.8",
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
 
-    const sidecar = {
-      title: artwork.title,
-      artist: artwork.artist,
-      date: artwork.date,
-      museum: MUSEUM_LABELS[artwork.source],
-      accession: artwork.accession ?? null,
-      license: artwork.license,
-      sourceUrl: artwork.sourceUrl,
-      imageUrl: artwork.imageHires,
-      downloadedAt,
-    };
-    await fs.writeFile(
-      path.join(dir, `${base}.json`),
-      JSON.stringify(sidecar, null, 2) + "\n",
-      "utf8"
-    );
-    return { id: artwork.id, ok: true, file };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "download failed";
-    return { id: artwork.id, ok: false, error: message };
-  }
+function sidecarJson(artwork: Artwork, downloadedAt: string): string {
+  return (
+    JSON.stringify(
+      {
+        title: artwork.title,
+        artist: artwork.artist,
+        date: artwork.date,
+        museum: MUSEUM_LABELS[artwork.source],
+        accession: artwork.accession ?? null,
+        license: artwork.license,
+        sourceUrl: artwork.sourceUrl,
+        imageUrl: artwork.imageHires,
+        downloadedAt,
+      },
+      null,
+      2,
+    ) + "\n"
+  );
 }
 
 function mdCell(value: string): string {
@@ -109,52 +105,91 @@ function attributionMarkdown(artworks: Artwork[], downloadedAt: string): string 
         MUSEUM_LABELS[a.source]
       } | ${mdCell(a.accession ?? "—")} | ${mdCell(a.license)} | [${
         MUSEUM_LABELS[a.source]
-      }](${a.sourceUrl}) |`
+      }](${a.sourceUrl}) |`,
     );
   }
   lines.push("", `Downloaded ${downloadedAt}`, "");
   return lines.join("\n");
 }
 
-export async function exportArtworks(
-  request: ExportRequest
-): Promise<ExportResult> {
-  let artworks = request.artworks ?? [];
-  let folderName = "export";
-
+async function resolveArtworks(
+  request: ExportRequest,
+): Promise<{ artworks: Artwork[]; folderName: string }> {
   if (request.collectionId) {
     const collection = await getCollection(request.collectionId);
-    if (!collection) {
-      throw new Error(`No collection with id "${request.collectionId}"`);
-    }
-    artworks = collection.artworks;
-    folderName = slugify(collection.name) || collection.id;
+    if (!collection) throw new Error(`No collection with id "${request.collectionId}"`);
+    return {
+      artworks: collection.artworks,
+      folderName: slugify(collection.name) || collection.id,
+    };
   }
+  return { artworks: request.artworks ?? [], folderName: "loupe-export" };
+}
 
-  if (artworks.length === 0) {
-    throw new Error("Nothing to export");
-  }
-
-  const destDir = request.destDir ?? (await getSettings()).exportDir;
-  const dir = path.join(destDir, folderName);
-  await fs.mkdir(dir, { recursive: true });
-
+/** Build the browser download for a request — image for one work, zip for many. */
+export async function buildDownload(request: ExportRequest): Promise<DownloadResult> {
+  const { artworks, folderName } = await resolveArtworks(request);
+  if (artworks.length === 0) throw new Error("Nothing to export");
   const downloadedAt = new Date().toISOString();
+
+  // Single work → the bare image, so it's a usable backdrop straight away.
+  if (artworks.length === 1) {
+    const art = artworks[0];
+    const data = await fetchImage(art);
+    const ext = imageExtension(art.imageHires);
+    return {
+      filename: `${fileBaseName(art)}.${ext}`,
+      contentType: ext === "png" ? "image/png" : "image/jpeg",
+      body: Buffer.from(data),
+      results: [{ id: art.id, ok: true }],
+    };
+  }
+
+  // Collection → a zip of images + sidecars + attribution. Failed fetches are
+  // recorded and simply left out (a museum 403 shouldn't sink the whole zip).
+  const entries: ZipEntry[] = [];
   const results: ExportItemResult[] = [];
-  const CONCURRENCY = 3;
+  const included: Artwork[] = [];
+  const CONCURRENCY = 4;
   for (let i = 0; i < artworks.length; i += CONCURRENCY) {
     const batch = artworks.slice(i, i + CONCURRENCY);
-    const settled = await Promise.all(
-      batch.map((a) => downloadArtwork(a, dir, downloadedAt))
+    await Promise.all(
+      batch.map(async (art) => {
+        try {
+          const data = await fetchImage(art);
+          const base = fileBaseName(art);
+          entries.push({
+            name: `${folderName}/${base}.${imageExtension(art.imageHires)}`,
+            data,
+          });
+          entries.push({
+            name: `${folderName}/${base}.json`,
+            data: new TextEncoder().encode(sidecarJson(art, downloadedAt)),
+          });
+          included.push(art);
+          results.push({ id: art.id, ok: true });
+        } catch (err) {
+          results.push({
+            id: art.id,
+            ok: false,
+            error: err instanceof Error ? err.message : "download failed",
+          });
+        }
+      }),
     );
-    results.push(...settled);
   }
 
-  await fs.writeFile(
-    path.join(dir, "ATTRIBUTION.md"),
-    attributionMarkdown(artworks, downloadedAt),
-    "utf8"
-  );
+  if (included.length === 0) throw new Error("Every image failed to download");
 
-  return { dir, results };
+  entries.push({
+    name: `${folderName}/ATTRIBUTION.md`,
+    data: new TextEncoder().encode(attributionMarkdown(included, downloadedAt)),
+  });
+
+  return {
+    filename: `${folderName}.zip`,
+    contentType: "application/zip",
+    body: createZip(entries),
+    results,
+  };
 }
