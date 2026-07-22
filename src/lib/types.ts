@@ -1,4 +1,11 @@
-export type SourceId = "aic" | "cma" | "met" | "rijks";
+export type SourceId =
+  | "aic"
+  | "cma"
+  | "met"
+  | "rijks"
+  | "smk"
+  | "mia"
+  | "harvard";
 
 /** Normalized artwork record — the contract everything hangs off. */
 export interface Artwork {
@@ -22,6 +29,19 @@ export interface Artwork {
   medium?: string;
   /** px of hires when known */
   dims?: { width?: number; height?: number };
+  /** dominant color (HSL) from a source's own palette — AIC `color`, SMK
+   *  `colors[0]`, Harvard `colors[0]`; Met/CMA/Mia leave this undefined */
+  color?: { h: number; s: number; l: number };
+  /**
+   * Art movement(s), e.g. "Impressionism". Only AIC has a native movement
+   * facet (facets.aic.styleName) at query time; this field instead carries
+   * a client-side join result populated for every source (including AIC) by
+   * matching `artist` against the static Wikidata (P135) lookup in
+   * src/lib/movements.ts — never fetched at runtime. This is what ships
+   * movement precision to Met/CMA/Rijks, which have no movement field at
+   * all. Absent when the name join has no match.
+   */
+  movements?: string[];
 }
 
 /**
@@ -45,6 +65,8 @@ export interface SearchFacets {
     culture?: string;
     createdAfter?: number;
     createdBefore?: number;
+    /** CMA has no subject facet — per-source keyword stands in for one */
+    q?: string;
   };
   met?: {
     departmentId?: number;
@@ -60,6 +82,41 @@ export interface SearchFacets {
     material?: string;
     technique?: string;
     datingPeriod?: number;
+    q?: string;
+  };
+  /**
+   * SMK (Statens Museum for Kunst, Denmark). Filter values are Danish —
+   * `object_names:maleri` (painting), `creator_nationality:hollandsk` (Dutch).
+   * Date range uses top-level dateRange, filtered client-side (SMK's
+   * range_filters syntax is unreliable). `q` merges into the `keys` search.
+   */
+  smk?: {
+    objectName?: string;
+    nationality?: string;
+    technique?: string;
+    q?: string;
+  };
+  /**
+   * Minneapolis Institute of Art. Filters are ES query-string terms appended
+   * to the Lucene path query (`classification:"Paintings"`, `country:"..."`).
+   * `q` adds extra keyword terms.
+   */
+  mia?: {
+    classification?: string;
+    department?: string;
+    country?: string;
+    q?: string;
+  };
+  /**
+   * Harvard Art Museums. `classification`/`century`/`culture` map to the
+   * API's own filter params; `medium` biases the keyword. `q` merges into the
+   * text search.
+   */
+  harvard?: {
+    classification?: string;
+    century?: string;
+    culture?: string;
+    medium?: string;
     q?: string;
   };
 }

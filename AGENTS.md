@@ -26,7 +26,7 @@ Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in 
 
 Everything flows through **one `SearchQuery`** (`src/lib/types.ts`) into **`searchSources(sources, query)`** (`src/lib/adapters/index.ts`), a `Promise.allSettled` fanout that round-robin-interleaves and dedupes by id, returning `{ artworks, errors }`. This single function backs **all three** input paths:
 
-1. **Manual search** — free-text `q` + optional `artist` + source checkboxes → `GET /api/search?q=…&artist=…&sources=…`. Raw keyword/artist passthrough to each museum's own index. No interpretation.
+1. **Manual search** — free-text `q` + optional `artist` + source checkboxes → `GET /api/search?q=…&artist=…&sources=…`. Raw keyword/artist passthrough to each museum's own index. No interpretation. An **interpret toggle** on the search bar routes the phrase through `POST /api/interpret` (vocab fast path from `src/lib/vocab.ts`, else a one-shot Claude compile, else fallback-as-is) and runs the compiled `SearchQuery` via `POST /api/search` (zod-validated body, same `searchSources` fanout); the compiled facets render as removable chips.
 2. **Category chips** (the non-LLM taxonomy) — `GET /api/search?category=<id>` runs one pre-authored `SearchQuery` whose `.facets` carry per-source filter recipes.
 3. **Claude curator** — `POST /api/agent` (see below) calls the same `searchSources` via an in-process tool.
 
@@ -35,9 +35,12 @@ Everything flows through **one `SearchQuery`** (`src/lib/types.ts`) into **`sear
 Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }` and maps the shared `SearchQuery` to that museum's real params. **CC0/public-domain + has-image is baked into every adapter and is never user-facing.**
 
 - **`aic.ts`** — Art Institute of Chicago (keyless, richest). The **only** source with a queryable art-movement vocabulary. `facets.aic.styleName/subjectName/classificationName/departmentName` are resolved name→id at runtime via `/category-terms/search` (⚠ **must** pass `fields=id,title,subtype` or `subtype` comes back null and everything silently fails to resolve), cached module-level, then applied as extra `query[bool][filter][N][term][<field>_id]` entries (the array form composes; two `query[term]` params collide/400). "Impressionism" → `style_id=TM-7543`.
-- **`cma.ts`** — Cleveland (keyless). `facets.cma` → `type`/`technique`/`department`/`culture` (free-text, substring-y) / `created_after`/`created_before`.
+- **`cma.ts`** — Cleveland (keyless). `facets.cma` → `type`/`technique`/`department`/`culture` (free-text, substring-y) / `created_after`/`created_before`; `facets.cma.q` merges into CMA's `q` param (CMA has no subject facet — the per-source keyword stands in for one).
 - **`met.ts`** — The Met (keyless, two-step: `/search` returns objectIDs → hydrate each `/objects/{id}`, capped at 50, concurrency 8, filter `isPublicDomain` post-hydration). `facets.met` → `departmentId`/`medium` (pipe-delim)/`geoLocation`/`dateBegin`+`dateEnd` (pair)/`tags`; `facets.met.q` merges into the query. **Met's public API intermittently 403s (Cloudflare/rate-limit) — non-fatal, lands in `errors[]`.**
 - **`rijks.ts`** — Rijksmuseum. **Dormant.** `enabled()` returns false without `RIJKSMUSEUM_API_KEY`, and the classic keyed API's key issuance has been retired (the keyless replacement returns only Linked-Art IRIs needing multi-hop dereferencing — see § Known issues). Removed from the UI source list; adapter kept registered so it re-lights if a key ever returns.
+- **`smk.ts`** — Statens Museum for Kunst, Denmark (keyless). CC0/public-domain + has-image baked into the `filters` param. Native hi-res over IIIF (`image_native`), pixel dims, and a `colors[]` hex palette → `Artwork.color` (via `hexToHsl` in `color.ts`), so SMK joins AIC in the color sort. Filter *values* are Danish: `facets.smk` → `objectName` (`object_names:maleri` = painting) / `nationality` (`creator_nationality:hollandsk` = Dutch) / `technique` / `q` (merged into the `keys` search). Date range is filtered client-side (SMK's `range_filters` syntax is unreliable). `getById` via `?object_number=`.
+- **`mia.ts`** — Minneapolis Institute of Art (keyless, **unofficial** ES endpoint `search.artsmia.org`). The path segment is a Lucene query; `image:valid AND public_access:1 AND rights_type:"Public Domain"` are ANDed in server-side. `facets.mia` → `classification` (`"Paintings"`) / `department` / `country` / `q`; artist becomes a scoped `artist:"…"` term. Records carry **no** image URL — thumb (`_800`) and hi-res (`_full`) are constructed from `Cache_Location` + `Primary_RenditionNumber` against the live CDN `img.artsmia.org` (the documented `api.artsmia.org` / `iiif.dx.artsmia.org` hosts are dead).
+- **`harvard.ts`** — Harvard Art Museums. **Dormant** like rijks — `enabled()` returns false without `HARVARD_API_KEY` (free, form-issued; see `.env.example`). Per-record rights via `imagepermissionlevel=0` (freely reusable). `people` → artist, `colors[0]` → `Artwork.color`, images over IIIF (`images[].iiifbaseuri`). `facets.harvard` → `classification` / `century` / `culture` / `medium` / `q`. 2,500 req/day. Registered but omitted from the UI list until a key lands (add `"harvard"` to `ALL_SOURCES` in `page.tsx`).
 
 ### Category taxonomy (`src/lib/presets.ts`)
 
@@ -57,15 +60,18 @@ JSON-on-disk in gitignored `data/` (`collections.json` stores **full Artwork rec
 src/app/
   page.tsx                  single page — owns all state, wires every component
   layout.tsx globals.css    fonts + @theme design tokens
-  api/{search,agent,collections,export,settings}/route.ts
+  api/{search,agent,interpret,collections,export,settings}/route.ts
 src/lib/
   types.ts                  Artwork · SearchQuery · SearchFacets · SourceAdapter
-  adapters/{index,aic,cma,met,rijks}.ts
+  adapters/{index,aic,cma,met,rijks,smk,mia,harvard}.ts
+  color.ts                  HSL/HSV/OKLab math + hexToHsl (color sort + picker)
   presets.ts                CATEGORIES taxonomy (misnamed file — it's categories now)
-  agent/{tools,session? ,prompt}.ts   curator MCP tools + system prompt
+  vocab.ts                  shared vibe vocabulary (curator prompt + /api/interpret fast path)
+  search-schema.ts          strict zod mirror of SearchQuery (POST /api/search + interpret)
+  agent/{tools,session? ,prompt}.ts   curator MCP tools + system prompt (vocab section rendered from vocab.ts)
   collections.ts settings.ts export.ts
 src/components/
-  SearchBar PresetChips FilterBar ResultGrid ArtworkCard SourceBadge
+  SearchBar FilterRow Dropdown ColorPicker ResultGrid ArtworkCard SourceBadge
   DetailView SaveMenu CollectionsBar ClaudePanel
   ui/                       shadcn chat bits (Bubble, Marker, …) — curator only
 ```
@@ -73,7 +79,8 @@ src/components/
 ## Known issues / gotchas
 
 - **Met 403s intermittently** (upstream Cloudflare). Non-fatal. If it worsens, consider caching hydrated objects or a UA header on Met fetches (unverified fix — raw curl also 403s, so it's IP/rate-based).
-- **`nocturne-night` returns 0 from AIC**: its top-level `q:"nocturne"` (needed for CMA, which has no subject facet) intersects the AIC "Night" subject filter to empty. CMA/Met carry that category. Fixing cleanly needs a `q` field on `facets.cma`.
+- **Met `tags=true` search intermittently returns 0 for everything** (observed 2026-07-21: `q=Landscapes&tags=true` → 0 upstream while plain `q` works). Categories using `met.tags` silently lose their Met slice while it lasts. Non-fatal, upstream.
+- **AIC's "night" subject terms are empty of public-domain works** (TM-12702 / TM-13355 / TM-8868 all ~0) — a `subjectName:"Night"` facet intersects AIC to nothing regardless of `q`. `nocturne-night` therefore uses full-text `q:"nocturne"` (fixed 2026-07-21; it returns the Whistler nocturnes). The old theory ("top-level q intersects the subject filter") was only half the story.
 - **Rijks is dormant** (see adapter note). Re-enabling means either a key (issuance retired) or rewiring to the keyless Linked-Art API — a real mini-project: search returns bare IRIs → dereference each object IRI → its `shows` is *another* IRI → dereference again for the IIIF image; artist/date are nested `produced_by` Linked-Art. Scope separately.
 - `presets.ts` is named for the old "presets" concept but now holds `CATEGORIES`. Rename if it bugs you.
 

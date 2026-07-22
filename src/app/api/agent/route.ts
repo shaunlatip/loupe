@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
             mcpServers: { museum },
             allowedTools: [
               "mcp__museum__search_artworks",
+              "mcp__museum__view_artworks",
               "mcp__museum__present_selection",
             ],
             // curation only — no file/bash/web tools

@@ -9,6 +9,9 @@ import { aic } from "./aic";
 import { cma } from "./cma";
 import { met } from "./met";
 import { rijks } from "./rijks";
+import { smk } from "./smk";
+import { mia } from "./mia";
+import { harvard } from "./harvard";
 
 /**
  * Adapter registry + shared search fanout. This single code path backs both
@@ -20,6 +23,9 @@ export const ADAPTERS: Record<string, SourceAdapter> = {
   cma,
   met,
   rijks,
+  smk,
+  mia,
+  harvard,
 };
 
 export function enabledSources(): SourceId[] {

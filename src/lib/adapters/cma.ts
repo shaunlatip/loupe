@@ -72,7 +72,10 @@ export const cma: SourceAdapter = {
       has_image: "1",
       limit: String(limit),
     });
-    if (q.q) params.set("q", q.q);
+    // facet.q carries a category's subject term (CMA has no subject facet) —
+    // merge with manual q, mirroring the Met adapter
+    const terms = [q.q, f?.q].filter(Boolean).join(" ");
+    if (terms) params.set("q", terms);
     // artists= composes with q= (verified live: artists=Whistler&q=nocturne)
     if (q.artist) params.set("artists", q.artist);
     if (f?.type) params.set("type", f.type);

@@ -49,7 +49,7 @@ export default function CollectionsBar({
               disabled={isExporting}
               className="caption invert-hover border-l border-ink px-2 py-1 disabled:pointer-events-none"
             >
-              {isExporting ? "Exporting…" : "Export"}
+              {isExporting ? "Downloading…" : "Download"}
             </button>
           </span>
         );

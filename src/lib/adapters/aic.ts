@@ -7,7 +7,7 @@ import type { Artwork, SearchQuery, SourceAdapter } from "@/lib/types";
 
 const API = "https://api.artic.edu/api/v1/artworks";
 const FIELDS =
-  "id,title,artist_display,artist_title,date_display,date_start,image_id,is_public_domain,main_reference_number,medium_display,thumbnail";
+  "id,title,artist_display,artist_title,date_display,date_start,image_id,is_public_domain,main_reference_number,medium_display,thumbnail,color";
 
 interface AicRecord {
   id: number;
@@ -20,6 +20,8 @@ interface AicRecord {
   main_reference_number: string | null;
   medium_display: string | null;
   thumbnail: { width?: number; height?: number } | null;
+  /** dominant-color analysis; null for many records */
+  color: { h: number; s: number; l: number; percentage?: number; population?: number } | null;
 }
 
 function iiif(imageId: string, size: string): string {
@@ -90,10 +92,14 @@ function toArtwork(r: AicRecord): Artwork | null {
     sourceUrl: `https://www.artic.edu/artworks/${r.id}`,
     accession: r.main_reference_number ?? undefined,
     medium: r.medium_display ?? undefined,
+    // `thumbnail.width/height` is the original image's pixel size (AIC uses
+    // it to size the lqip placeholder), not the ~800px thumbnail render —
+    // so this already reflects real hi-res dims when AIC knows them.
     dims:
       r.thumbnail?.width && r.thumbnail?.height
         ? { width: r.thumbnail.width, height: r.thumbnail.height }
         : undefined,
+    color: r.color ? { h: r.color.h, s: r.color.s, l: r.color.l } : undefined,
   };
 }
 
