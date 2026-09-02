@@ -3,14 +3,17 @@ import { buildDownload, type ExportRequest } from "@/lib/export";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// a collection export fetches every hi-res image server-side
-export const maxDuration = 120;
+// a collection export fetches every hi-res image server-side; Vercel Hobby
+// caps functions at 60s (build fails if this exceeds the plan) — raise on Pro
+export const maxDuration = 60;
 
 /**
- * POST /api/export { artworks?|collectionId? } → the download itself, streamed
+ * POST /api/export { artworks, folderName? } → the download itself, streamed
  * with Content-Disposition so the browser saves it. One work comes back as the
  * image; many come back as a zip. No server filesystem is touched, so this
- * works on a read-only host (Vercel) exactly as it does locally.
+ * works on a read-only host (Vercel) exactly as it does locally. Collections
+ * live in the browser (localStorage), so a collection export sends its resolved
+ * artworks in the body rather than an id.
  */
 export async function POST(req: NextRequest) {
   let body: ExportRequest;
@@ -20,9 +23,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.collectionId && !(body.artworks && body.artworks.length > 0)) {
+  if (!(body.artworks && body.artworks.length > 0)) {
     return NextResponse.json(
-      { error: "pass artworks or a collectionId" },
+      { error: "pass artworks to export" },
       { status: 400 },
     );
   }

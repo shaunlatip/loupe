@@ -20,6 +20,13 @@ import FilterRow, { type SortMode } from "@/components/FilterRow";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import ClaudePanel from "@/components/ClaudePanel";
+import {
+  type Collection,
+  addArtwork,
+  createCollection,
+  getCollection,
+  listCollections,
+} from "@/lib/collections-client";
 
 // "Fits a hero": landscape-ish and big enough to sit full-bleed behind UI —
 // see the Shopify-Editions backdrop use case in AGENTS.md.
@@ -84,13 +91,6 @@ interface ResultState {
   errors: SourceError[];
   origin: "manual" | "claude" | "collection";
   note?: string;
-}
-
-interface Collection {
-  id: string;
-  name: string;
-  createdAt: string;
-  artworks: Artwork[];
 }
 
 interface Interpretation {
@@ -188,7 +188,7 @@ const EMPTY: ResultState = { artworks: [], errors: [], origin: "manual" };
  */
 async function triggerDownload(body: {
   artworks?: Artwork[];
-  collectionId?: string;
+  folderName?: string;
 }): Promise<string> {
   let res: Response;
   try {
@@ -256,11 +256,10 @@ export default function Home() {
   const [exporting, setExporting] = useState<string | undefined>();
   const [exportNote, setExportNote] = useState<string | undefined>();
 
+  // Collections live in localStorage (Loupe deploys to a read-only host) — read
+  // them once on mount, client-side only.
   useEffect(() => {
-    fetch("/api/collections")
-      .then((r) => r.json())
-      .then((j: { collections: Collection[] }) => setCollections(j.collections))
-      .catch(() => {});
+    setCollections(listCollections());
   }, []);
 
   // "calmest" sort: re-render (and re-sort, via the calmTick dependency
@@ -450,36 +449,27 @@ export default function Home() {
   }));
 
   const saveToCollection = useCallback(
-    async (collectionId: string) => {
+    (collectionId: string) => {
       if (!open) return;
-      const res = await fetch("/api/collections", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: collectionId, add: open }),
-      });
-      const json = (await res.json()) as { collections: Collection[] };
-      if (json.collections) setCollections(json.collections);
+      setCollections(addArtwork(collectionId, open));
       setSaveOpen(false);
     },
     [open],
   );
 
   const createAndSave = useCallback(
-    async (name: string) => {
+    (name: string) => {
       if (!open) return;
-      const created = await fetch("/api/collections", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const createdJson = (await created.json()) as {
-        collections: Collection[];
-      };
-      setCollections(createdJson.collections);
-      const target = createdJson.collections.find((c) => c.name === name);
-      if (target) await saveToCollection(target.id);
+      const withNew = createCollection(name);
+      const target = withNew.find((c) => c.name === name);
+      if (target) {
+        setCollections(addArtwork(target.id, open));
+      } else {
+        setCollections(withNew);
+      }
+      setSaveOpen(false);
     },
-    [open, saveToCollection],
+    [open],
   );
 
   const openCollection = useCallback(
@@ -501,11 +491,23 @@ export default function Home() {
     [collections],
   );
 
+  // Collections are client-side now, so resolve the artworks here and hand them
+  // to the export route (which only touches the network, never a filesystem).
   const exportCollection = useCallback(async (id: string) => {
+    const collection = getCollection(id);
+    if (!collection || collection.artworks.length === 0) {
+      setExportNote("Nothing to export");
+      return;
+    }
     setExporting(id);
     setExportNote(undefined);
     try {
-      setExportNote(await triggerDownload({ collectionId: id }));
+      setExportNote(
+        await triggerDownload({
+          artworks: collection.artworks,
+          folderName: collection.name,
+        }),
+      );
     } finally {
       setExporting(undefined);
     }

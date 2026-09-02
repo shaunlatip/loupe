@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { CATEGORIES } from "@/lib/presets";
 import { searchQuerySchema } from "@/lib/search-schema";
 import { matchVocab, VOCAB, type VocabEntry } from "@/lib/vocab";
@@ -9,14 +9,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const MODEL = "claude-opus-4-8";
+
 /**
  * POST /api/interpret { q } → { query, explanation, method } — compiles a
  * vague vibe phrase into one concrete SearchQuery. Fast path: the shared
- * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot Claude call
- * (no session, no tools, maxTurns 1) with auth resolved by the SDK from
- * ANTHROPIC_API_KEY or an `ant` profile — same as /api/agent, never a key
- * in code. Any failure degrades to method:"fallback" (search the phrase
- * as-is); this route never 500s.
+ * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot Claude Messages
+ * call (no tools, no thinking) with auth resolved by the SDK from
+ * ANTHROPIC_API_KEY — never a key in code. Any failure (including a missing
+ * key on a deploy) degrades to method:"fallback" (search the phrase as-is);
+ * this route never 500s.
  */
 
 interface InterpretResult {
@@ -103,43 +105,35 @@ function extractJson(text: string): unknown {
 }
 
 async function interpretWithClaude(q: string): Promise<InterpretResult> {
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 45_000);
-  try {
-    const conversation = query({
-      prompt: q,
-      options: {
-        systemPrompt: buildInterpretPrompt(),
-        abortController: abort,
-        // one-shot compile: no session, no tools, single turn
-        tools: [],
-        allowedTools: [],
-        maxTurns: 1,
-      },
-    });
-    let text = "";
-    for await (const msg of conversation) {
-      if (msg.type === "result") {
-        if (msg.subtype !== "success") throw new Error(`agent result: ${msg.subtype}`);
-        text = msg.result;
-      }
-    }
-    const raw = extractJson(text) as {
-      query?: unknown;
-      explanation?: unknown;
-    };
-    const parsed = searchQuerySchema.parse(raw.query);
-    return {
-      query: parsed,
-      explanation:
-        typeof raw.explanation === "string" && raw.explanation.trim()
-          ? raw.explanation.trim()
-          : "Compiled by Claude.",
-      method: "claude",
-    };
-  } finally {
-    clearTimeout(timer);
+  const client = new Anthropic();
+  const res = await client.messages.create(
+    {
+      model: MODEL,
+      max_tokens: 1024,
+      // one-shot JSON compile — no tools, no reasoning overhead
+      thinking: { type: "disabled" },
+      system: buildInterpretPrompt(),
+      messages: [{ role: "user", content: q }],
+    },
+    { timeout: 45_000 },
+  );
+  let text = "";
+  for (const block of res.content) {
+    if (block.type === "text") text += block.text;
   }
+  const raw = extractJson(text) as {
+    query?: unknown;
+    explanation?: unknown;
+  };
+  const parsed = searchQuerySchema.parse(raw.query);
+  return {
+    query: parsed,
+    explanation:
+      typeof raw.explanation === "string" && raw.explanation.trim()
+        ? raw.explanation.trim()
+        : "Compiled by Claude.",
+    method: "claude",
+  };
 }
 
 export async function POST(req: NextRequest) {

@@ -23,63 +23,6 @@ interface StreamEvent {
   error?: string;
 }
 
-/** localhost / loopback → the curator's Claude backend can run. Anything else
- *  (a Vercel domain, a LAN IP) is a deployed build where it can't. */
-function isLocalHost(): boolean {
-  if (typeof window === "undefined") return true;
-  const h = window.location.hostname;
-  return h === "localhost" || h === "127.0.0.1" || h === "::1";
-}
-
-/** The clone-and-run instructions shown in place of the chat on a deployed
- *  build — the curator spawns the Claude CLI with your own Anthropic auth, so
- *  it only works when Loupe runs on your machine. */
-function SetupNotice() {
-  const steps: { label: string; code?: string }[] = [
-    { label: "Clone the repo", code: "git clone https://github.com/shaunlatip/loupe.git" },
-    { label: "Install dependencies", code: "cd loupe && npm install" },
-    {
-      label: "Authenticate Claude — log in with the CLI or set a key",
-      code: "claude   # or: export ANTHROPIC_API_KEY=sk-…",
-    },
-    { label: "Start it", code: "npm run dev" },
-    { label: "Open Loupe", code: "http://localhost:4050" },
-  ];
-  return (
-    <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-6">
-      <p className="text-[13px] leading-relaxed">
-        The curator is a Claude agent that browses the collections and proposes
-        works for you. It runs Claude on your own machine — through the Claude
-        Agent SDK and your Anthropic account — so it can’t run on this hosted
-        build. Everything else here (search, categories, filters, color) works
-        as normal.
-      </p>
-      <p className="caption">To use the curator, run Loupe locally:</p>
-      <ol className="flex flex-col gap-4">
-        {steps.map((step, i) => (
-          <li key={i} className="flex flex-col gap-1.5">
-            <div className="flex gap-2 text-[13px]">
-              <span className="shrink-0 font-mono text-muted-foreground">
-                {i + 1}.
-              </span>
-              <span>{step.label}</span>
-            </div>
-            {step.code && (
-              <code className="ml-5 block border border-ink bg-wash px-3 py-2 font-mono text-[12px] break-all">
-                {step.code}
-              </code>
-            )}
-          </li>
-        ))}
-      </ol>
-      <p className="caption leading-relaxed">
-        Auth resolves from <span className="font-mono">ANTHROPIC_API_KEY</span>{" "}
-        or a logged-in Claude CLI profile — the app never reads a key from code.
-      </p>
-    </div>
-  );
-}
-
 function statusLabel(tool: string, input: Record<string, unknown> = {}): string {
   if (tool === "search_artworks") {
     const parts = [input.artist, input.q].filter(Boolean).join(" · ");
@@ -105,7 +48,6 @@ export default function ClaudePanel({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
-  const [local] = useState(isLocalHost);
   const sessionRef = useRef<string | undefined>(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -202,10 +144,6 @@ export default function ClaudePanel({
         </button>
       </header>
 
-      {!local ? (
-        <SetupNotice />
-      ) : (
-        <>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         {turns.length === 0 && (
           <p className="caption pt-8 text-center leading-relaxed">
@@ -285,8 +223,6 @@ export default function ClaudePanel({
           Send
         </button>
       </form>
-        </>
-      )}
     </aside>
   );
 }

@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Artwork, SourceId } from "@/lib/types";
-import { getCollection, slugify } from "@/lib/collections";
+import { slugify } from "@/lib/slug";
 import { createZip, type ZipEntry } from "@/lib/zip";
 
 /**
@@ -30,7 +30,8 @@ export interface ExportItemResult {
 
 export interface ExportRequest {
   artworks?: Artwork[];
-  collectionId?: string;
+  /** folder name inside the zip + download filename (a collection's slug, say) */
+  folderName?: string;
 }
 
 export interface DownloadResult {
@@ -112,23 +113,10 @@ function attributionMarkdown(artworks: Artwork[], downloadedAt: string): string 
   return lines.join("\n");
 }
 
-async function resolveArtworks(
-  request: ExportRequest,
-): Promise<{ artworks: Artwork[]; folderName: string }> {
-  if (request.collectionId) {
-    const collection = await getCollection(request.collectionId);
-    if (!collection) throw new Error(`No collection with id "${request.collectionId}"`);
-    return {
-      artworks: collection.artworks,
-      folderName: slugify(collection.name) || collection.id,
-    };
-  }
-  return { artworks: request.artworks ?? [], folderName: "loupe-export" };
-}
-
 /** Build the browser download for a request — image for one work, zip for many. */
 export async function buildDownload(request: ExportRequest): Promise<DownloadResult> {
-  const { artworks, folderName } = await resolveArtworks(request);
+  const artworks = request.artworks ?? [];
+  const folderName = slugify(request.folderName ?? "") || "loupe-export";
   if (artworks.length === 0) throw new Error("Nothing to export");
   const downloadedAt = new Date().toISOString();
 
