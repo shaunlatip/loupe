@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import type { CalmResult } from "@/lib/calm";
+import { serverCanFetch, sourceOfId } from "@/lib/source-egress";
 
 /**
  * Client-side cache + lazy scheduler for `GET /api/calm`. Scores are never
@@ -47,7 +48,22 @@ function pump() {
   queued.delete(next.id);
   inFlight.add(next.id);
   idle(() => {
-    fetch(`/api/calm?id=${encodeURIComponent(next.id)}&url=${encodeURIComponent(next.url)}`)
+    const request = serverCanFetch(sourceOfId(next.id))
+      ? fetch(`/api/calm?id=${encodeURIComponent(next.id)}&url=${encodeURIComponent(next.url)}`)
+      : // host blocks datacenter IPs (see source-egress.ts) — fetch the thumb
+        // here on the viewer's IP, no Referer, and post the bytes for decode
+        fetch(next.url, { referrerPolicy: "no-referrer" })
+          .then((img) =>
+            img.ok ? img.arrayBuffer() : Promise.reject(new Error(`HTTP ${img.status}`)),
+          )
+          .then((bytes) =>
+            fetch(`/api/calm?id=${encodeURIComponent(next.id)}`, {
+              method: "POST",
+              headers: { "content-type": "application/octet-stream" },
+              body: bytes,
+            }),
+          );
+    request
       .then((res) => (res.ok ? (res.json() as Promise<CalmResult>) : null))
       .then((result) => {
         if (result) cache.set(next.id, result);

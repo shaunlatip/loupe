@@ -27,6 +27,8 @@ import {
   getCollection,
   listCollections,
 } from "@/lib/collections-client";
+import { serverCanFetch } from "@/lib/source-egress";
+import { fileBaseName, imageExtension } from "@/lib/slug";
 
 // "Fits a hero": landscape-ish and big enough to sit full-bleed behind UI —
 // see the Shopify-Editions backdrop use case in AGENTS.md.
@@ -180,6 +182,36 @@ function removeQueryField(query: SearchQuery, chipId: string): SearchQuery {
 const ALL_SOURCES: SourceId[] = ["aic", "cma", "met", "smk", "mia"];
 const EMPTY: ResultState = { artworks: [], errors: [], origin: "manual" };
 
+/** Hand a Blob to the browser as a download. */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Single-work download fetched by the browser itself. For sources whose image
+ * host blocks datacenter IPs (AIC — see source-egress.ts) the server route
+ * can't fetch the file on a deployed build, but the viewer's own browser can:
+ * no Referer, and AIC sends CORS `*`. Returns a status line for the note.
+ */
+async function downloadDirect(artwork: Artwork): Promise<string> {
+  try {
+    const res = await fetch(artwork.imageHires, { referrerPolicy: "no-referrer" });
+    if (!res.ok) return "Download failed";
+    const filename = `${fileBaseName(artwork)}.${imageExtension(artwork.imageHires)}`;
+    saveBlob(await res.blob(), filename);
+    return `Downloaded ${filename}`;
+  } catch {
+    return "Download failed";
+  }
+}
+
 /**
  * POST an export request and save the streamed response as a file — the server
  * fetches the images and hands back an image (one work) or a zip (many); the
@@ -211,15 +243,7 @@ async function triggerDownload(body: {
   const cd = res.headers.get("content-disposition") ?? "";
   const filename = /filename="(.+?)"/.exec(cd)?.[1] ?? "loupe-export";
   const failed = Number(res.headers.get("x-export-failed") ?? "0");
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  saveBlob(await res.blob(), filename);
   return failed > 0
     ? `Downloaded ${filename} — ${failed} image${failed === 1 ? "" : "s"} unavailable`
     : `Downloaded ${filename}`;
@@ -515,7 +539,11 @@ export default function Home() {
 
   const exportOne = useCallback(async (artwork: Artwork) => {
     setExportNote(undefined);
-    setExportNote(await triggerDownload({ artworks: [artwork] }));
+    setExportNote(
+      serverCanFetch(artwork.source)
+        ? await triggerDownload({ artworks: [artwork] })
+        : await downloadDirect(artwork),
+    );
   }, []);
 
   const onSelection = useCallback((artworks: Artwork[], note: string) => {
@@ -716,6 +744,7 @@ export default function Home() {
                 artworks={displayArtworks}
                 errors={results.errors}
                 note={results.note}
+                loading={loading}
                 onOpen={(a) => {
                   setSaveOpen(false);
                   setOpen(a);

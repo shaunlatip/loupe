@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Artwork, SourceId } from "@/lib/types";
-import { slugify } from "@/lib/slug";
+import { fileBaseName, imageExtension, slugify } from "@/lib/slug";
 import { createZip, type ZipEntry } from "@/lib/zip";
 
 /**
@@ -40,21 +40,6 @@ export interface DownloadResult {
   body: Buffer;
   /** per-artwork fetch outcome — the route can surface partial failures */
   results: ExportItemResult[];
-}
-
-function fileBaseName(artwork: Artwork): string {
-  const parts = [
-    slugify(artwork.artist) || "unknown-artist",
-    slugify(artwork.title) || "untitled",
-    `${artwork.source}-${slugify(artwork.nativeId)}`,
-  ];
-  let base = parts.join("--");
-  if (base.length > 120) base = base.slice(0, 120).replace(/-+$/, "");
-  return base;
-}
-
-function imageExtension(url: string): "png" | "jpg" {
-  return url.split("?")[0].toLowerCase().endsWith(".png") ? "png" : "jpg";
 }
 
 async function fetchImage(artwork: Artwork): Promise<Uint8Array> {

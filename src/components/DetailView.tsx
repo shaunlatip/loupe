@@ -86,6 +86,7 @@ export default function DetailView({
                 <img
                   src={artwork.imageThumb}
                   alt=""
+                  referrerPolicy="no-referrer"
                   className={`h-full w-full object-contain blur-lg transition-opacity duration-150 ${
                     hiresLoaded ? "opacity-0" : "opacity-100"
                   }`}
@@ -97,6 +98,7 @@ export default function DetailView({
               src={artwork.imageHires}
               alt={artwork.title}
               decoding="async"
+              referrerPolicy="no-referrer"
               ref={(el) => {
                 if (el?.complete) setHiresLoaded(true);
               }}

@@ -14,18 +14,7 @@ import { analyzeCalm, ANALYSIS_MAX_EDGE, type CalmResult } from "@/lib/calm";
 // and shorter.
 const cache = new Map<string, Promise<CalmResult>>();
 
-async function fetchAndAnalyze(url: string): Promise<CalmResult> {
-  const res = await fetch(url, {
-    headers: {
-      // AIC's IIIF server 403s bare Node fetch without a browser-ish UA —
-      // same trick as export.ts.
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
-      accept: "image/*,*/*;q=0.8",
-    },
-  });
-  if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-
+async function analyzeBytes(bytes: Buffer): Promise<CalmResult> {
   const { data, info } = await sharp(bytes)
     .resize({
       width: ANALYSIS_MAX_EDGE,
@@ -40,14 +29,32 @@ async function fetchAndAnalyze(url: string): Promise<CalmResult> {
   return analyzeCalm(new Uint8Array(data.buffer, data.byteOffset, data.length), info.width, info.height);
 }
 
-export function getCalm(id: string, url: string): Promise<CalmResult> {
-  let pending = cache.get(id);
-  if (!pending) {
-    pending = fetchAndAnalyze(url).catch((err) => {
-      cache.delete(id); // don't pin a failure forever — allow retry on next request
-      throw err;
-    });
-    cache.set(id, pending);
-  }
+async function fetchAndAnalyze(url: string): Promise<CalmResult> {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
+      accept: "image/*,*/*;q=0.8",
+    },
+  });
+  if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+  return analyzeBytes(Buffer.from(await res.arrayBuffer()));
+}
+
+function remember(id: string, work: Promise<CalmResult>): Promise<CalmResult> {
+  const pending = work.catch((err) => {
+    cache.delete(id); // don't pin a failure forever — allow retry on next request
+    throw err;
+  });
+  cache.set(id, pending);
   return pending;
+}
+
+export function getCalm(id: string, url: string): Promise<CalmResult> {
+  return cache.get(id) ?? remember(id, fetchAndAnalyze(url));
+}
+
+/** Bytes the browser fetched itself — for hosts that 403 datacenter IPs
+ *  (AIC on Vercel; see source-egress.ts). Same cache, same analysis. */
+export function getCalmFromBytes(id: string, bytes: Buffer): Promise<CalmResult> {
+  return cache.get(id) ?? remember(id, analyzeBytes(bytes));
 }

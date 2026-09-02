@@ -36,10 +36,15 @@ export default function ArtworkCard({
   // to reach one card doesn't fetch dozens of full-size images.
   const warmed = useRef(false);
   const warmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AIC's IIIF server 403s any cross-origin Referer (it only serves when none
+  // is sent), so every museum image request goes out referrer-less — the
+  // grid <img> below, this warm-up, and DetailView alike.
   const warmHires = () => {
     if (warmed.current) return;
     warmed.current = true;
-    new Image().src = artwork.imageHires;
+    const img = new Image();
+    img.referrerPolicy = "no-referrer";
+    img.src = artwork.imageHires;
   };
   const warmSoon = () => {
     if (warmed.current || warmTimer.current) return;
@@ -69,6 +74,7 @@ export default function ArtworkCard({
           alt={artwork.title}
           loading="lazy"
           decoding="async"
+          referrerPolicy="no-referrer"
           ref={(el) => {
             if (el?.complete) setLoaded(true);
           }}

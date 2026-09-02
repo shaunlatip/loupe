@@ -63,11 +63,14 @@ export default function ResultGrid({
   artworks,
   errors,
   note,
+  loading = false,
   onOpen,
 }: {
   artworks: Artwork[];
   errors: SourceError[];
   note?: string;
+  /** a fetch is in flight — an empty grid means "searching", not "no results" */
+  loading?: boolean;
   onOpen: (a: Artwork) => void;
 }) {
   const k = useColumnCount();
@@ -86,7 +89,13 @@ export default function ResultGrid({
         </p>
       )}
       {artworks.length === 0 ? (
-        <p className="caption py-16 text-center">No results.</p>
+        loading ? (
+          <p className="caption animate-pulse py-16 text-center">
+            Searching the collections…
+          </p>
+        ) : (
+          <p className="caption py-16 text-center">No results.</p>
+        )
       ) : (
         <div className="flex gap-6">
           {columns.map((col, i) => (
