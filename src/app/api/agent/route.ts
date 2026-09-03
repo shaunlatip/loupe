@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
         }
       };
 
-      const ctx = { cache: new Map<string, Artwork>(), emit };
+      const ctx = { cache: new Map<string, Artwork>(), emit, viewed: new Set<string>() };
 
       try {
         if (claude) {

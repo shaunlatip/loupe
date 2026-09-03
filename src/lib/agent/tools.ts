@@ -12,6 +12,9 @@ export interface MuseumToolContext {
   cache: Map<string, Artwork>;
   /** pushes an NDJSON event onto the route's response stream */
   emit: (event: AgentStreamEvent) => void;
+  /** ids the model has actually seen a thumbnail for — feeds the hosted
+   *  engine's safety-net selection when a turn ends without present_selection */
+  viewed?: Set<string>;
 }
 
 /** What a tool call produced: text for the `tool` message, plus any images the
@@ -216,6 +219,7 @@ async function viewArtworks(
     }
     lines.push(`image ${images.length + 1}: ${label}`);
     images.push(thumb);
+    ctx.viewed?.add(artwork.id);
   }
 
   return { text: lines.join("\n") || "nothing to view", images };
