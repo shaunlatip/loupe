@@ -1,59 +1,81 @@
-import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { NextRequest, NextResponse } from "next/server";
+import type OpenAI from "openai";
 import { CURATOR_PROMPT } from "@/lib/agent/prompt";
 import { MUSEUM_TOOLS, runMuseumTool } from "@/lib/agent/tools";
 import type { AgentStreamEvent } from "@/lib/agent/tools";
+import {
+  CURATOR_MODELS,
+  describeLlmError,
+  llmClient,
+  llmConfigured,
+  modelParams,
+} from "@/lib/llm";
+import { clientKey, rateLimited } from "@/lib/rate-limit";
 import type { Artwork } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Vercel Hobby caps serverless functions at 60s (and fails the build if this
-// exceeds the plan limit). A curator turn runs several sequential model+tool
-// round-trips, so complex turns can bump this ceiling — raise it on Pro.
+// Vercel Hobby caps functions at 60s (and fails the build above the plan
+// limit). A turn is several sequential model+tool round-trips — keep it tight.
 export const maxDuration = 60;
 
-const MODEL = "claude-opus-4-8";
-// one create() call per loop step; a turn rarely needs more than a handful
-const MAX_STEPS = 12;
+// one chat completion per loop step; free models + the 60s cap want short turns
+const MAX_STEPS = 8;
+// soft per-visitor ceiling so one person can't drain the free quota for all
+const TURNS_PER_WINDOW = 12;
+const WINDOW_MS = 10 * 60 * 1000;
+
+type Msg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 /**
- * Session continuation without a server session: the running message history is
- * kept in-process, keyed by an opaque id we mint and hand back in `done`. On a
- * cold serverless instance the map is empty, so a follow-up simply starts a
- * fresh conversation — the curator still works, it just loses the earlier
- * brief. Image blocks are stripped before persisting to keep memory bounded
- * (the model re-reads works by id when it needs them again).
+ * Session continuation without a server session: the running message history
+ * is kept in-process, keyed by an opaque id we mint and hand back in `done`.
+ * On a cold serverless instance the map is empty, so a follow-up simply starts
+ * a fresh conversation. Image parts are stripped before persisting to keep
+ * memory bounded (the model re-views works by id when it needs them again).
  */
-const SESSIONS = new Map<string, Anthropic.MessageParam[]>();
+const SESSIONS = new Map<string, Msg[]>();
 
 interface AgentRequestBody {
   sessionId?: string;
   message: string;
 }
 
-/** Replace base64 image blocks in stored tool_results with a light placeholder. */
-function stripImages(history: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+/** Replace base64 image parts in stored user messages with a light placeholder. */
+function stripImages(history: Msg[]): Msg[] {
   return history.map((msg) => {
     if (msg.role !== "user" || typeof msg.content === "string") return msg;
-    const content = msg.content.map((block) => {
-      if (block.type !== "tool_result" || !Array.isArray(block.content)) return block;
-      const inner = block.content.map((b) =>
-        b.type === "image"
-          ? ({ type: "text", text: "[image viewed]" } as Anthropic.TextBlockParam)
-          : b,
-      );
-      return { ...block, content: inner };
-    });
+    const content = msg.content.map((part) =>
+      part.type === "image_url" ? { type: "text" as const, text: "[image viewed]" } : part,
+    );
     return { ...msg, content };
   });
+}
+
+function parseArgs(raw: string | undefined): unknown {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
 }
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as AgentRequestBody;
   if (!body.message?.trim()) {
-    return new Response(JSON.stringify({ error: "message required" }), {
-      status: 400,
-    });
+    return NextResponse.json({ error: "message required" }, { status: 400 });
+  }
+  if (!llmConfigured()) {
+    return NextResponse.json(
+      { error: "The curator isn't configured on this deployment (missing OPENROUTER_API_KEY)." },
+      { status: 503 },
+    );
+  }
+  if (rateLimited(clientKey(req), TURNS_PER_WINDOW, WINDOW_MS)) {
+    return NextResponse.json(
+      { error: "Too many curator turns from this address — try again in a few minutes." },
+      { status: 429 },
+    );
   }
 
   const encoder = new TextEncoder();
@@ -73,61 +95,74 @@ export async function POST(req: NextRequest) {
 
       let sessionId = body.sessionId;
       const prior = sessionId ? SESSIONS.get(sessionId) : undefined;
-      const history: Anthropic.MessageParam[] = prior ? [...prior] : [];
+      const history: Msg[] = prior
+        ? [...prior]
+        : [{ role: "system", content: CURATOR_PROMPT }];
       history.push({ role: "user", content: body.message });
 
       try {
-        const client = new Anthropic();
+        const client = llmClient();
+        let model: string | undefined;
 
         for (let step = 0; step < MAX_STEPS; step++) {
-          const res = await client.messages.create({
-            model: MODEL,
-            max_tokens: 4096,
-            system: CURATOR_PROMPT,
-            thinking: { type: "adaptive" },
-            tools: MUSEUM_TOOLS,
+          const res = await client.chat.completions.create({
+            ...modelParams(CURATOR_MODELS),
             messages: history,
+            tools: MUSEUM_TOOLS,
+            tool_choice: "auto",
+            max_tokens: 2048,
           });
+          model = res.model;
+          const msg = res.choices[0]?.message;
+          if (!msg) break;
 
-          history.push({ role: "assistant", content: res.content });
+          const calls = (msg.tool_calls ?? []).filter((c) => c.type === "function");
+          history.push({
+            role: "assistant",
+            content: msg.content ?? null,
+            ...(calls.length > 0 ? { tool_calls: calls } : {}),
+          });
+          if (msg.content?.trim()) emit({ type: "text", text: msg.content });
+          if (calls.length === 0) break;
 
-          const toolUses: Anthropic.ToolUseBlock[] = [];
-          for (const block of res.content) {
-            if (block.type === "text" && block.text.trim()) {
-              emit({ type: "text", text: block.text });
-            } else if (block.type === "tool_use") {
-              emit({ type: "status", tool: block.name, input: block.input });
-              toolUses.push(block);
-            }
-          }
-
-          if (res.stop_reason !== "tool_use" || toolUses.length === 0) break;
-
-          const results: Anthropic.ToolResultBlockParam[] = [];
-          for (const tu of toolUses) {
+          const images: { data: string; mimeType: string }[] = [];
+          for (const call of calls) {
+            const name = call.function.name;
+            const input = parseArgs(call.function.arguments);
+            emit({ type: "status", tool: name, input });
             try {
-              const content = await runMuseumTool(tu.name, tu.input, ctx);
-              results.push({ type: "tool_result", tool_use_id: tu.id, content });
+              const outcome = await runMuseumTool(name, input, ctx);
+              history.push({ role: "tool", tool_call_id: call.id, content: outcome.text });
+              if (outcome.images?.length) images.push(...outcome.images);
             } catch (err) {
-              results.push({
-                type: "tool_result",
-                tool_use_id: tu.id,
-                content: err instanceof Error ? err.message : "tool failed",
-                is_error: true,
+              history.push({
+                role: "tool",
+                tool_call_id: call.id,
+                content: `error: ${err instanceof Error ? err.message : "tool failed"}`,
               });
             }
           }
-          history.push({ role: "user", content: results });
+          // tool messages are text-only in this format — images ride in a
+          // follow-up user message, in the order view_artworks listed them
+          if (images.length > 0) {
+            history.push({
+              role: "user",
+              content: [
+                { type: "text", text: "Thumbnails for the works you asked to view, in order:" },
+                ...images.map((img) => ({
+                  type: "image_url" as const,
+                  image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+                })),
+              ],
+            });
+          }
         }
 
         if (!sessionId) sessionId = crypto.randomUUID();
         SESSIONS.set(sessionId, stripImages(history));
-        emit({ type: "done", sessionId });
+        emit({ type: "done", sessionId, model });
       } catch (err) {
-        emit({
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        emit({ type: "error", message: describeLlmError(err) });
       } finally {
         try {
           controller.close();

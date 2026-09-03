@@ -1,6 +1,6 @@
 # Loupe — agent handoff
 
-**Loupe** is a small local tool for a product designer (Shaun Latip) to **search, browse, save, and export open-access (CC0 / public-domain) museum art** for use as design backdrops behind portfolio case studies — the Shopify-Editions / Notion-Mail-hero pattern (an atmospheric painting as a full-bleed ground with crisp UI floating on top). It is deliberately small: **one page, one grid, one panel, one bar.** Density is the enemy — see § Non-goals before adding anything.
+**Loupe** is a small tool for a product designer (Shaun Latip) — run locally or hosted at **https://loupe-xi.vercel.app** — to **search, browse, save, and export open-access (CC0 / public-domain) museum art** for use as design backdrops behind portfolio case studies — the Shopify-Editions / Notion-Mail-hero pattern (an atmospheric painting as a full-bleed ground with crisp UI floating on top). It is deliberately small: **one page, one grid, one panel, one bar.** Density is the enemy — see § Non-goals before adding anything.
 
 Sibling project: **shader-lab** (`~/Documents/Projects/shader-lab`) *generates/edits* textures; Loupe *finds real art*. Don't add image editing here — that's shader-lab's job. Loupe export is bytes-in-bytes-out.
 
@@ -8,17 +8,18 @@ Sibling project: **shader-lab** (`~/Documents/Projects/shader-lab`) *generates/e
 
 ```
 cd ~/Documents/Projects/loupe
-npm run dev      # → http://localhost:4050 (port pinned in package.json)
+npm run dev      # prints its URL (portless assigns the port, usually :3000)
 npx tsc --noEmit # typecheck
+npm run build    # what Vercel runs — do this before pushing to main
 ```
 
 Node 22, **npm** (not pnpm — pnpm isn't on PATH on this machine). After a dep change or a directory move, `rm -rf .next` before restarting (stale Turbopack manifest → "module is not a function" errors).
 
-Auth: nothing required for manual search or browse categories. The **Claude curator panel** needs Anthropic auth, resolved automatically from `ANTHROPIC_API_KEY` or an `ant auth login` profile (the app never reads a key from code). No `.env` needed to run; see `.env.example`.
+Auth: nothing required for manual search, categories, calm scoring, collections or export. The **curator panel** and the **interpret** search mode call an LLM through `src/lib/llm.ts` — an OpenAI-compatible client, OpenRouter's free models by default — and need `OPENROUTER_API_KEY` (env only, never read from code). Without it they degrade: interpret searches the phrase as-is, the curator explains it isn't configured. See `.env.example` and § Deploy.
 
 ## Stack & conventions
 
-Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in `src/app/globals.css`, no config file) · `@anthropic-ai/claude-agent-sdk` · a few shadcn chat components (`src/components/ui/`, used only by the curator panel) · `zod`.
+Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in `src/app/globals.css`, no config file) · `openai` (as a generic OpenAI-compatible client — see `src/lib/llm.ts`) · `sharp` (via Next, server-side calm analysis) · a few shadcn chat components (`src/components/ui/`, used only by the curator panel) · `zod`.
 
 **Design register — American art museums (Whitney / MFA / Guggenheim): flat, Swiss grid, ZERO border-radius, NO shadows, ink `#0a0a0a` on paper `#fff`, one accent `#2400ff` (active states only), Instrument Sans + Geist Mono, sentence case (never all-caps).** `globals.css` zeroes every `--radius-*` and `--shadow-*` token, so stray `rounded-*`/`shadow-*` utilities render flat — but `rounded-full` bypasses that (watch the shadcn components). Elevation = a 1px ink border, never a shadow. Hover = invert (`.invert-hover`). Labels use `.caption`. `font-mono` only for technical values (accession, license, dims). The shadcn `ui/` components read shadcn semantic tokens (`--color-primary`, `--color-muted-foreground`, etc.) which are mapped to this palette in `globals.css` — if a placeholder/border looks near-white, it's a `text-muted` (surface) vs `text-muted-foreground` (secondary text) mixup.
 
@@ -26,9 +27,9 @@ Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in 
 
 Everything flows through **one `SearchQuery`** (`src/lib/types.ts`) into **`searchSources(sources, query)`** (`src/lib/adapters/index.ts`), a `Promise.allSettled` fanout that round-robin-interleaves and dedupes by id, returning `{ artworks, errors }`. This single function backs **all three** input paths:
 
-1. **Manual search** — free-text `q` + optional `artist` + source checkboxes → `GET /api/search?q=…&artist=…&sources=…`. Raw keyword/artist passthrough to each museum's own index. No interpretation. An **interpret toggle** on the search bar routes the phrase through `POST /api/interpret` (vocab fast path from `src/lib/vocab.ts`, else a one-shot Claude compile, else fallback-as-is) and runs the compiled `SearchQuery` via `POST /api/search` (zod-validated body, same `searchSources` fanout); the compiled facets render as removable chips.
+1. **Manual search** — free-text `q` + optional `artist` + source checkboxes → `GET /api/search?q=…&artist=…&sources=…`. Raw keyword/artist passthrough to each museum's own index. No interpretation. An **interpret toggle** on the search bar routes the phrase through `POST /api/interpret` (vocab fast path from `src/lib/vocab.ts`, else a one-shot LLM compile, else fallback-as-is) and runs the compiled `SearchQuery` via `POST /api/search` (zod-validated body, same `searchSources` fanout); the compiled facets render as removable chips.
 2. **Category chips** (the non-LLM taxonomy) — `GET /api/search?category=<id>` runs one pre-authored `SearchQuery` whose `.facets` carry per-source filter recipes.
-3. **Claude curator** — `POST /api/agent` (see below) calls the same `searchSources` via an in-process tool.
+3. **Curator** — `POST /api/agent` (see below) calls the same `searchSources` via a tool.
 
 ### Adapters (`src/lib/adapters/`)
 
@@ -46,13 +47,17 @@ Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }`
 
 `CATEGORIES: Category[]` — data only. Each `{ id, label, group, query }` where `group ∈ Movements | Periods | Cultures | Subjects | Media` and `query.facets` sets recipes for the sources it can serve. 20 categories today (`impressionism`, `dutch-golden-age`, `ukiyo-e`, `still-life`, `oil-painting`, …). Rendered grouped by `PresetChips.tsx`. **AIC carries movements/subjects via its real vocabulary; Met/CMA get era+place+media proxies** (museums don't tag movement — only AIC does).
 
-### Claude curator (`src/lib/agent/` + `src/app/api/agent/route.ts`)
+### Curator (`src/lib/agent/` + `src/app/api/agent/route.ts`, LLM client in `src/lib/llm.ts`)
 
-`POST /api/agent {sessionId?, message}` streams NDJSON. Uses the Agent SDK `query()` with `resume: sessionId` for cross-turn refinement, an in-process MCP server (`createSdkMcpServer` + `tool`) exposing **`search_artworks`** (→ `searchSources`, returns compact rows, caches full records) and **`present_selection`** (→ pushes a `selection` event to the grid). `allowedTools` restricted to `mcp__museum__*`, built-in `tools: []`. System prompt (`prompt.ts`) carries the art-historical vocabulary. Stream events: `text` / `status` / `selection` / `done{sessionId}` / `error`. The panel (`ClaudePanel.tsx`) is bottom-sticking (a plain scroll container + `scrollIntoView`, **not** the shadcn `MessageScroller` — its "anchored turns" pinned content to the top, which was the streaming-scroll bug).
+`POST /api/agent {sessionId?, message}` streams NDJSON. A hand-rolled tool-use loop over `chat.completions` (OpenAI function-calling format, so it runs against OpenRouter or any OpenAI-compatible endpoint — no agent SDK, no subprocess, works in a serverless function). Three tools in `tools.ts`: **`search_artworks`** (→ `searchSources`, compact rows, caches full records), **`view_artworks`** (fetches ≤8 downsized thumbs; tool messages are text-only in this format, so the images ride in a follow-up `user` message) and **`present_selection`** (→ pushes a `selection` event to the grid). Cross-turn refinement: the history lives in an in-process `Map` keyed by an opaque `sessionId` returned in `done` — on a cold serverless instance it's simply a fresh conversation. Models come from `LOUPE_CURATOR_MODEL` (comma list → OpenRouter `models` fallbacks); `MAX_STEPS` is 8 and `maxDuration` 60 for the Hobby plan. A soft per-IP limiter (`rate-limit.ts`) guards the free quota. System prompt (`prompt.ts`) carries the art-historical vocabulary. Stream events: `text` / `status` / `selection` / `done{sessionId, model}` / `error{message}` (429/401/404 from the provider are translated into readable messages by `describeLlmError`). The panel (`ClaudePanel.tsx`) is bottom-sticking (a plain scroll container + `scrollIntoView`, **not** the shadcn `MessageScroller` — its "anchored turns" pinned content to the top, which was the streaming-scroll bug).
 
-### Collections & export (`src/lib/collections.ts`, `export.ts` + routes)
+### Collections & export (`src/lib/collections-client.ts`, `export.ts` + route)
 
-JSON-on-disk in gitignored `data/` (`collections.json` stores **full Artwork records**; `settings.json` holds `exportDir`, default `~/Downloads/loupe-exports`). `POST /api/export {artworks?|collectionId?, destDir?}` downloads `imageHires` + a per-work sidecar JSON + a batch `ATTRIBUTION.md`. ⚠ AIC's IIIF server 403s bare Node fetch → `export.ts` sends a browser User-Agent.
+Collections live in the **browser's localStorage** (`collections-client.ts`, full Artwork records, same CRUD as the old on-disk store) — there is no server state, which is what lets the app run on a read-only host. `POST /api/export {artworks, folderName?}` streams back the download: one work → the image, many → a zip of `imageHires` + per-work sidecar JSON + `ATTRIBUTION.md`, built in memory. A collection export sends its resolved artworks in the body. Single-work **Download** for AIC is fetched by the browser itself (see § Deploy — AIC egress).
+
+### Calm scoring (`src/lib/calm.ts`, `calm-server.ts`, `calm-client.ts`, `/api/calm`)
+
+Server-side `sharp` decode + a "largest calm rectangle" analysis per work, requested lazily from the grid via an idle-scheduled client queue and cached by artwork id. `GET /api/calm?id&url` fetches the thumb server-side (host allowlisted); `POST /api/calm?id` takes the bytes from the browser for hosts that block datacenter IPs (`source-egress.ts`).
 
 ## File map
 
@@ -60,7 +65,7 @@ JSON-on-disk in gitignored `data/` (`collections.json` stores **full Artwork rec
 src/app/
   page.tsx                  single page — owns all state, wires every component
   layout.tsx globals.css    fonts + @theme design tokens
-  api/{search,agent,interpret,collections,export,settings}/route.ts
+  api/{search,agent,interpret,export,calm}/route.ts
 src/lib/
   types.ts                  Artwork · SearchQuery · SearchFacets · SourceAdapter
   adapters/{index,aic,cma,met,rijks,smk,mia,harvard}.ts
@@ -68,13 +73,24 @@ src/lib/
   presets.ts                CATEGORIES taxonomy (misnamed file — it's categories now)
   vocab.ts                  shared vibe vocabulary (curator prompt + /api/interpret fast path)
   search-schema.ts          strict zod mirror of SearchQuery (POST /api/search + interpret)
-  agent/{tools,session? ,prompt}.ts   curator MCP tools + system prompt (vocab section rendered from vocab.ts)
-  collections.ts settings.ts export.ts
+  llm.ts                    OpenAI-compatible client + model/fallback config (OpenRouter default)
+  rate-limit.ts             soft per-IP limiter for the LLM routes
+  agent/{tools,prompt}.ts   curator tools (OpenAI function format) + system prompt (vocab from vocab.ts)
+  collections-client.ts     localStorage collections store
+  export.ts slug.ts         zip/image download builder; slug + filename helpers (client + server)
+  calm.ts calm-server.ts calm-client.ts   calm-area analysis, server decode, lazy client queue
+  source-egress.ts          which museum image hosts block datacenter IPs (AIC) → browser fetches
 src/components/
   SearchBar FilterRow Dropdown ColorPicker ResultGrid ArtworkCard SourceBadge
   DetailView SaveMenu CollectionsBar ClaudePanel
   ui/                       shadcn chat bits (Bubble, Marker, …) — curator only
 ```
+
+## Deploy (Vercel)
+
+Production is **https://loupe-xi.vercel.app** — project `loupe` in team "Shaun's projects" (Hobby plan), GitHub-linked: **every push to `main` builds and deploys.** Preview deployments are SSO-protected, so verify on production. Env vars (Settings → Environment Variables, then redeploy): `OPENROUTER_API_KEY` for the curator/interpret; optional `LOUPE_CURATOR_MODEL` / `LOUPE_INTERPRET_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY`; optional `HARVARD_API_KEY`. Hobby caps serverless functions at **60s** and fails the build if any route's `maxDuration` exceeds it — raise to 300 on Pro.
+
+**AIC egress rules** (Cloudflare in front of `www.artic.edu/iiif`): it 403s **any cross-origin Referer** and **any datacenter IP**. So every museum `<img>` carries `referrerPolicy="no-referrer"`, and server-side AIC fetches from Vercel fail no matter the UA. `source-egress.ts` names such hosts; for them the browser fetches the bytes (AIC sends CORS `*`) and hands them to the server (calm POST) or saves them directly (single-work Download). Still degraded on Vercel, AIC only: collection zips skip AIC works, and the curator's `view_artworks` can't see AIC thumbs (it still searches/presents them by metadata).
 
 ## Known issues / gotchas
 
@@ -93,7 +109,7 @@ src/components/
 
 ## Non-goals (scope armor)
 
-No auth · no deploy (`npm run dev` is the product) · no database (two JSON files) · **no image editing** (shader-lab's job) · no infinite scroll (one page of ≤50 results = curation, not browsing) · no boards/tags/drag-drop · no portfolio integration inside this repo · no dark mode · no test framework. **Density tripwire: any new feature that adds a second page or third panel must remove something first.**
+No auth · no database (collections are the browser's localStorage; the server keeps no state) · no paid LLM by default (free OpenRouter models; swapping is an env var, not code) · **no image editing** (shader-lab's job) · no infinite scroll (one page of ≤50 results = curation, not browsing) · no boards/tags/drag-drop · no portfolio integration inside this repo · no dark mode · no test framework. **Density tripwire: any new feature that adds a second page or third panel must remove something first.**
 
 ## Provenance
 

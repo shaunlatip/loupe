@@ -68,7 +68,15 @@ export default function ClaudePanel({
           body: JSON.stringify({ message, sessionId: sessionRef.current }),
         });
         if (!res.ok || !res.body) {
-          throw new Error(`Curator unavailable (${res.status})`);
+          // the route explains itself (not configured / rate-limited) as JSON
+          let detail = `Curator unavailable (${res.status})`;
+          try {
+            const j = (await res.json()) as { error?: string };
+            if (j.error) detail = j.error;
+          } catch {
+            /* keep the generic line */
+          }
+          throw new Error(detail);
         }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -134,7 +142,6 @@ export default function ClaudePanel({
       <header className="flex items-center justify-between border-b border-ink px-4 py-3">
         <div className="flex items-baseline gap-2">
           <span className="text-[15px] font-semibold">Curator</span>
-          <span className="caption">powered by Claude</span>
         </div>
         <button
           onClick={onClose}

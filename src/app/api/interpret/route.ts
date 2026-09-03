@@ -1,30 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { CATEGORIES } from "@/lib/presets";
 import { searchQuerySchema } from "@/lib/search-schema";
 import { matchVocab, VOCAB, type VocabEntry } from "@/lib/vocab";
+import { INTERPRET_MODELS, llmClient, llmConfigured, modelParams } from "@/lib/llm";
+import { clientKey, rateLimited } from "@/lib/rate-limit";
 import type { SearchQuery } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "claude-opus-4-8";
+// soft per-visitor ceiling on LLM compiles (vocab hits are free and uncounted)
+const CALLS_PER_WINDOW = 40;
+const WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * POST /api/interpret { q } → { query, explanation, method } — compiles a
  * vague vibe phrase into one concrete SearchQuery. Fast path: the shared
- * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot Claude Messages
- * call (no tools, no thinking) with auth resolved by the SDK from
- * ANTHROPIC_API_KEY — never a key in code. Any failure (including a missing
- * key on a deploy) degrades to method:"fallback" (search the phrase as-is);
- * this route never 500s.
+ * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot chat completion
+ * (no tools) against the OpenAI-compatible endpoint in llm.ts — OpenRouter's
+ * free models by default, key from env only. Any failure (missing key, rate
+ * limit, unparseable reply) degrades to method:"fallback" (search the phrase
+ * as-is); this route never 500s.
  */
 
 interface InterpretResult {
   query: SearchQuery;
   explanation: string;
-  method: "vocab" | "claude" | "fallback";
+  method: "vocab" | "llm" | "fallback";
 }
 
 /** Shallow-merge matched entries' queries; first match wins on conflicts. */
@@ -104,23 +107,18 @@ function extractJson(text: string): unknown {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function interpretWithClaude(q: string): Promise<InterpretResult> {
-  const client = new Anthropic();
-  const res = await client.messages.create(
-    {
-      model: MODEL,
-      max_tokens: 1024,
-      // one-shot JSON compile — no tools, no reasoning overhead
-      thinking: { type: "disabled" },
-      system: buildInterpretPrompt(),
-      messages: [{ role: "user", content: q }],
-    },
-    { timeout: 45_000 },
-  );
-  let text = "";
-  for (const block of res.content) {
-    if (block.type === "text") text += block.text;
-  }
+async function interpretWithLlm(q: string): Promise<InterpretResult> {
+  const client = llmClient();
+  const res = await client.chat.completions.create({
+    ...modelParams(INTERPRET_MODELS),
+    messages: [
+      { role: "system", content: buildInterpretPrompt() },
+      { role: "user", content: q },
+    ],
+    max_tokens: 1024,
+    temperature: 0,
+  });
+  const text = res.choices[0]?.message?.content ?? "";
   const raw = extractJson(text) as {
     query?: unknown;
     explanation?: unknown;
@@ -131,8 +129,8 @@ async function interpretWithClaude(q: string): Promise<InterpretResult> {
     explanation:
       typeof raw.explanation === "string" && raw.explanation.trim()
         ? raw.explanation.trim()
-        : "Compiled by Claude.",
-    method: "claude",
+        : "Compiled by the model.",
+    method: "llm",
   };
 }
 
@@ -158,9 +156,18 @@ export async function POST(req: NextRequest) {
     } satisfies InterpretResult);
   }
 
-  // LLM path — one-shot compile; ANY failure degrades to as-is search.
+  // LLM path — one-shot compile; ANY failure degrades to as-is search. No key
+  // or a rate-limited visitor skips the call entirely.
+  const fallback: InterpretResult = {
+    query: { q },
+    explanation: "searched as-is",
+    method: "fallback",
+  };
+  if (!llmConfigured() || rateLimited(clientKey(req), CALLS_PER_WINDOW, WINDOW_MS)) {
+    return NextResponse.json(fallback);
+  }
   try {
-    return NextResponse.json(await interpretWithClaude(q));
+    return NextResponse.json(await interpretWithLlm(q));
   } catch {
     return NextResponse.json({
       query: { q },
