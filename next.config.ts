@@ -6,7 +6,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  // dev/start bind port 4050 (see package.json scripts)
+  // The Claude Agent SDK is used only on the local engine (see src/lib/engine.ts)
+  // and spawns the `claude` CLI — never bundle it; require it from node_modules
+  // at runtime. On Vercel it ships (~5MB) but is never imported.
+  serverExternalPackages: ["@anthropic-ai/claude-agent-sdk"],
 };
 
 export default nextConfig;

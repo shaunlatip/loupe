@@ -22,7 +22,7 @@ export interface ToolOutcome {
   images?: { data: string; mimeType: "image/png" | "image/jpeg" }[];
 }
 
-const VIEW_LIMIT = 8;
+export const VIEW_LIMIT = 8;
 /** guard against an oversized fetch (a non-IIIF thumb that turns out huge) */
 const MAX_IMAGE_BYTES = 1_500_000;
 const BROWSER_UA =
@@ -50,7 +50,7 @@ function mimeFromContentType(
     : "image/jpeg";
 }
 
-async function fetchThumbBase64(
+export async function fetchThumbBase64(
   artwork: Artwork,
 ): Promise<{ data: string; mimeType: "image/png" | "image/jpeg" } | { error: string }> {
   const url = viewUrl(artwork);

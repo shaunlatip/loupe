@@ -3,6 +3,7 @@ import { CATEGORIES } from "@/lib/presets";
 import { searchQuerySchema } from "@/lib/search-schema";
 import { matchVocab, VOCAB, type VocabEntry } from "@/lib/vocab";
 import { INTERPRET_MODELS, llmClient, llmConfigured, modelParams } from "@/lib/llm";
+import { useClaudeSdk } from "@/lib/engine";
 import { clientKey, rateLimited } from "@/lib/rate-limit";
 import type { SearchQuery } from "@/lib/types";
 
@@ -17,17 +18,17 @@ const WINDOW_MS = 10 * 60 * 1000;
 /**
  * POST /api/interpret { q } → { query, explanation, method } — compiles a
  * vague vibe phrase into one concrete SearchQuery. Fast path: the shared
- * vocabulary (vocab.ts), no LLM. Otherwise a single one-shot chat completion
- * (no tools) against the OpenAI-compatible endpoint in llm.ts — OpenRouter's
- * free models by default, key from env only. Any failure (missing key, rate
- * limit, unparseable reply) degrades to method:"fallback" (search the phrase
- * as-is); this route never 500s.
+ * vocabulary (vocab.ts), no LLM. Otherwise one one-shot model call: locally
+ * the Claude Agent SDK (method "claude"), on a hosted build the OpenAI-
+ * compatible endpoint in llm.ts (method "llm"), chosen by useClaudeSdk().
+ * Any failure (missing key, rate limit, unparseable reply) degrades to
+ * method:"fallback" (search the phrase as-is); this route never 500s.
  */
 
 interface InterpretResult {
   query: SearchQuery;
   explanation: string;
-  method: "vocab" | "llm" | "fallback";
+  method: "vocab" | "claude" | "llm" | "fallback";
 }
 
 /** Shallow-merge matched entries' queries; first match wins on conflicts. */
@@ -107,7 +108,8 @@ function extractJson(text: string): unknown {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function interpretWithLlm(q: string): Promise<InterpretResult> {
+/** Ask the hosted OpenAI-compatible endpoint for the compile; returns raw text. */
+async function llmInterpretText(q: string): Promise<string> {
   const client = llmClient();
   const res = await client.chat.completions.create({
     ...modelParams(INTERPRET_MODELS),
@@ -118,11 +120,22 @@ async function interpretWithLlm(q: string): Promise<InterpretResult> {
     max_tokens: 1024,
     temperature: 0,
   });
-  const text = res.choices[0]?.message?.content ?? "";
-  const raw = extractJson(text) as {
-    query?: unknown;
-    explanation?: unknown;
-  };
+  return res.choices[0]?.message?.content ?? "";
+}
+
+/** Run the compile through whichever engine this build uses, then extract and
+ *  validate the JSON (shared, so both engines behave identically downstream). */
+async function compileInterpret(q: string): Promise<InterpretResult> {
+  const claude = useClaudeSdk();
+  let text: string;
+  if (claude) {
+    // dynamic import so the Agent SDK never loads on the hosted path
+    const { interpretRawWithClaudeSdk } = await import("@/lib/agent/claude-engine");
+    text = await interpretRawWithClaudeSdk(q, buildInterpretPrompt());
+  } else {
+    text = await llmInterpretText(q);
+  }
+  const raw = extractJson(text) as { query?: unknown; explanation?: unknown };
   const parsed = searchQuerySchema.parse(raw.query);
   return {
     query: parsed,
@@ -130,7 +143,7 @@ async function interpretWithLlm(q: string): Promise<InterpretResult> {
       typeof raw.explanation === "string" && raw.explanation.trim()
         ? raw.explanation.trim()
         : "Compiled by the model.",
-    method: "llm",
+    method: claude ? "claude" : "llm",
   };
 }
 
@@ -156,23 +169,22 @@ export async function POST(req: NextRequest) {
     } satisfies InterpretResult);
   }
 
-  // LLM path — one-shot compile; ANY failure degrades to as-is search. No key
-  // or a rate-limited visitor skips the call entirely.
+  // Model path — one-shot compile; ANY failure degrades to as-is search. The
+  // hosted engine also skips the call when unconfigured or rate-limited; the
+  // local Claude engine uses your own CLI auth, so no gate there.
   const fallback: InterpretResult = {
     query: { q },
     explanation: "searched as-is",
     method: "fallback",
   };
-  if (!llmConfigured() || rateLimited(clientKey(req), CALLS_PER_WINDOW, WINDOW_MS)) {
-    return NextResponse.json(fallback);
+  if (!useClaudeSdk()) {
+    if (!llmConfigured() || rateLimited(clientKey(req), CALLS_PER_WINDOW, WINDOW_MS)) {
+      return NextResponse.json(fallback);
+    }
   }
   try {
-    return NextResponse.json(await interpretWithLlm(q));
+    return NextResponse.json(await compileInterpret(q));
   } catch {
-    return NextResponse.json({
-      query: { q },
-      explanation: "searched as-is",
-      method: "fallback",
-    } satisfies InterpretResult);
+    return NextResponse.json(fallback);
   }
 }

@@ -15,11 +15,11 @@ npm run build    # what Vercel runs — do this before pushing to main
 
 Node 22, **npm** (not pnpm — pnpm isn't on PATH on this machine). After a dep change or a directory move, `rm -rf .next` before restarting (stale Turbopack manifest → "module is not a function" errors).
 
-Auth: nothing required for manual search, categories, calm scoring, collections or export. The **curator panel** and the **interpret** search mode call an LLM through `src/lib/llm.ts` — an OpenAI-compatible client, OpenRouter's free models by default — and need `OPENROUTER_API_KEY` (env only, never read from code). Without it they degrade: interpret searches the phrase as-is, the curator explains it isn't configured. See `.env.example` and § Deploy.
+Auth: nothing required for manual search, categories, calm scoring, collections or export. The **curator panel** and the **interpret** search mode call an LLM through one of **two engines**, chosen by `src/lib/engine.ts` (`useClaudeSdk()`): **local `npm run dev` → the Claude Agent SDK** (`query()` spawns the `claude` CLI, auth from your logged-in profile / `ANTHROPIC_API_KEY` — cost-effective on your own machine); **Vercel / any serverless host → OpenRouter** via the OpenAI-compatible client in `src/lib/llm.ts` (the SDK can't spawn a subprocess there). The switch is `!process.env.VERCEL`, overridable with `LOUPE_LLM_ENGINE=claude|openrouter`. Hosted needs `OPENROUTER_API_KEY`; without it the curator says it isn't configured and interpret searches as-is. See `.env.example` and § Deploy.
 
 ## Stack & conventions
 
-Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in `src/app/globals.css`, no config file) · `openai` (as a generic OpenAI-compatible client — see `src/lib/llm.ts`) · `sharp` (via Next, server-side calm analysis) · a few shadcn chat components (`src/components/ui/`, used only by the curator panel) · `zod`.
+Next.js 16 App Router · React 19 · TypeScript · Tailwind v4 (CSS `@theme` in `src/app/globals.css`, no config file) · `openai` (generic OpenAI-compatible client, hosted engine — `src/lib/llm.ts`) · `@anthropic-ai/claude-agent-sdk` (local engine only; `serverExternalPackages` in `next.config.ts`, dynamically imported so it never loads on Vercel) · `sharp` (via Next, server-side calm analysis) · a few shadcn chat components (`src/components/ui/`, used only by the curator panel) · `zod`.
 
 **Design register — American art museums (Whitney / MFA / Guggenheim): flat, Swiss grid, ZERO border-radius, NO shadows, ink `#0a0a0a` on paper `#fff`, one accent `#2400ff` (active states only), Instrument Sans + Geist Mono, sentence case (never all-caps).** `globals.css` zeroes every `--radius-*` and `--shadow-*` token, so stray `rounded-*`/`shadow-*` utilities render flat — but `rounded-full` bypasses that (watch the shadcn components). Elevation = a 1px ink border, never a shadow. Hover = invert (`.invert-hover`). Labels use `.caption`. `font-mono` only for technical values (accession, license, dims). The shadcn `ui/` components read shadcn semantic tokens (`--color-primary`, `--color-muted-foreground`, etc.) which are mapped to this palette in `globals.css` — if a placeholder/border looks near-white, it's a `text-muted` (surface) vs `text-muted-foreground` (secondary text) mixup.
 
@@ -47,9 +47,12 @@ Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }`
 
 `CATEGORIES: Category[]` — data only. Each `{ id, label, group, query }` where `group ∈ Movements | Periods | Cultures | Subjects | Media` and `query.facets` sets recipes for the sources it can serve. 20 categories today (`impressionism`, `dutch-golden-age`, `ukiyo-e`, `still-life`, `oil-painting`, …). Rendered grouped by `PresetChips.tsx`. **AIC carries movements/subjects via its real vocabulary; Met/CMA get era+place+media proxies** (museums don't tag movement — only AIC does).
 
-### Curator (`src/lib/agent/` + `src/app/api/agent/route.ts`, LLM client in `src/lib/llm.ts`)
+### Curator (`src/lib/agent/` + `src/app/api/agent/route.ts`)
 
-`POST /api/agent {sessionId?, message}` streams NDJSON. A hand-rolled tool-use loop over `chat.completions` (OpenAI function-calling format, so it runs against OpenRouter or any OpenAI-compatible endpoint — no agent SDK, no subprocess, works in a serverless function). Three tools in `tools.ts`: **`search_artworks`** (→ `searchSources`, compact rows, caches full records), **`view_artworks`** (fetches ≤8 downsized thumbs; tool messages are text-only in this format, so the images ride in a follow-up `user` message) and **`present_selection`** (→ pushes a `selection` event to the grid). Cross-turn refinement: the history lives in an in-process `Map` keyed by an opaque `sessionId` returned in `done` — on a cold serverless instance it's simply a fresh conversation. Models come from `LOUPE_CURATOR_MODEL` (comma list → OpenRouter `models` fallbacks); `MAX_STEPS` is 8 and `maxDuration` 60 for the Hobby plan. A soft per-IP limiter (`rate-limit.ts`) guards the free quota. System prompt (`prompt.ts`) carries the art-historical vocabulary. Stream events: `text` / `status` / `selection` / `done{sessionId, model}` / `error{message}` (429/401/404 from the provider are translated into readable messages by `describeLlmError`). The panel (`ClaudePanel.tsx`) is bottom-sticking (a plain scroll container + `scrollIntoView`, **not** the shadcn `MessageScroller` — its "anchored turns" pinned content to the top, which was the streaming-scroll bug).
+`POST /api/agent {sessionId?, message}` streams NDJSON. The route picks an engine via `useClaudeSdk()` and hands both the same `{cache, emit}` context; both emit the same events: `text` / `status` / `selection` / `done{sessionId[, model]}` / `error{message}`. The three tools share one set of executors + thumbnail fetch in `tools.ts` (**`search_artworks`** → `searchSources`, compact rows, caches records; **`view_artworks`** → ≤8 downsized thumbs; **`present_selection`** → pushes a `selection` event).
+
+- **Hosted engine** (`openrouter-engine.ts`): a hand-rolled tool-use loop over `chat.completions` in OpenAI function-calling format. Tool messages are text-only, so `view_artworks` images ride in a follow-up `user` message. History is an in-process `Map` keyed by an opaque `sessionId` (cold instance → fresh conversation). Models from `LOUPE_CURATOR_MODEL` (comma list → OpenRouter `models` fallbacks); `MAX_STEPS` 8, `maxDuration` 60 for Hobby. Route applies a config check (503) + soft per-IP limiter (`rate-limit.ts`, 429) before streaming; `describeLlmError` turns provider 429/401/404 into readable text.
+- **Local engine** (`claude-engine.ts`, dynamically imported): the Agent SDK `query()` with `resume: sessionId`, an in-process MCP server (`createSdkMcpServer` + `tool`, same executors, images inline in the tool result). No key check or rate limit — it uses your CLI auth. The panel (`ClaudePanel.tsx`) is bottom-sticking (a plain scroll container + `scrollIntoView`, **not** the shadcn `MessageScroller` — its "anchored turns" pinned content to the top, which was the streaming-scroll bug).
 
 ### Collections & export (`src/lib/collections-client.ts`, `export.ts` + route)
 
@@ -73,9 +76,12 @@ src/lib/
   presets.ts                CATEGORIES taxonomy (misnamed file — it's categories now)
   vocab.ts                  shared vibe vocabulary (curator prompt + /api/interpret fast path)
   search-schema.ts          strict zod mirror of SearchQuery (POST /api/search + interpret)
+  engine.ts                 useClaudeSdk() — local (Claude SDK) vs hosted (OpenRouter) switch
   llm.ts                    OpenAI-compatible client + model/fallback config (OpenRouter default)
-  rate-limit.ts             soft per-IP limiter for the LLM routes
-  agent/{tools,prompt}.ts   curator tools (OpenAI function format) + system prompt (vocab from vocab.ts)
+  rate-limit.ts             soft per-IP limiter for the hosted LLM routes
+  agent/tools.ts prompt.ts  shared curator tool executors (OpenAI format) + system prompt
+  agent/openrouter-engine.ts   hosted curator loop (chat.completions)
+  agent/claude-engine.ts       local curator loop + interpret (Agent SDK MCP; dynamically imported)
   collections-client.ts     localStorage collections store
   export.ts slug.ts         zip/image download builder; slug + filename helpers (client + server)
   calm.ts calm-server.ts calm-client.ts   calm-area analysis, server decode, lazy client queue

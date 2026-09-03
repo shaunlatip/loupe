@@ -98,7 +98,7 @@ interface ResultState {
 interface Interpretation {
   query: SearchQuery;
   explanation: string;
-  method: "vocab" | "llm" | "fallback";
+  method: "vocab" | "claude" | "llm" | "fallback";
 }
 
 /** compiled-query chips — readable field names per facet entry */
