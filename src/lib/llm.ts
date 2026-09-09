@@ -8,10 +8,16 @@ import OpenAI from "openai";
  * Keys come from env only; nothing here is read from code.
  *
  * Model env vars take a comma-separated list. The first is the primary; on
- * OpenRouter the rest are passed as `models` fallbacks, so when a free
- * endpoint is rate-limited or down the request rolls to the next one.
- * Defaults are free models that support both image input and tool calling
- * (the curator needs both); check https://openrouter.ai/models?q=free.
+ * OpenRouter the rest are passed as `models` fallbacks, so if the primary is
+ * unavailable the request rolls to the next one.
+ *
+ * The default is a cheap PAID model (vision + tool calling — the curator needs
+ * both). OpenRouter's `:free` models share one per-account daily request cap
+ * (50/day, or 1,000/day once $10 of credits has settled) that a public demo
+ * exhausts fast; a paid model has no daily cap and costs cents
+ * (gemini-2.5-flash-lite ≈ $0.10/$0.40 per Mtok → ~$0.01 a curator turn). To
+ * run at $0 instead, set LOUPE_CURATOR_MODEL/LOUPE_INTERPRET_MODEL to `:free`
+ * models — see https://openrouter.ai/models?q=free.
  */
 
 const OPENROUTER = "https://openrouter.ai/api/v1";
@@ -19,7 +25,7 @@ const OPENROUTER = "https://openrouter.ai/api/v1";
 export const LLM_BASE_URL = process.env.LLM_BASE_URL?.trim() || OPENROUTER;
 
 const DEFAULT_MODELS =
-  "minimax/minimax-m3:free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free";
+  "google/gemini-2.5-flash-lite,qwen/qwen3-vl-30b-a3b-instruct";
 
 function modelList(env: string | undefined, fallback: string): string[] {
   return (env?.trim() || fallback)
