@@ -11,8 +11,10 @@ export async function GET(req: NextRequest) {
   const artist = sp.get("artist") ?? undefined;
   const categoryId = sp.get("category") ?? undefined;
   const sourcesParam = sp.get("sources");
+  // An explicit `sources=` (even empty — every museum unticked) is honoured;
+  // only a missing param means "all enabled".
   const sources = (
-    sourcesParam ? (sourcesParam.split(",") as SourceId[]) : enabledSources()
+    sourcesParam !== null ? (sourcesParam.split(",") as SourceId[]) : enabledSources()
   ).filter(Boolean);
 
   if (categoryId) {

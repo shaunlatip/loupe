@@ -922,12 +922,16 @@ export default function Home() {
                     <span>No work here carries that movement. Clear the Movement filter.</span>
                   ) : (
                     <>
-                      {enabledLabels.length < ALL_SOURCES.length && (
-                        <span>
-                          Only {enabledLabels.map(sourceLabel).join(", ")}{" "}
-                          {enabledLabels.length === 1 ? "is" : "are"} switched on. Add
-                          the rest under Sources.
-                        </span>
+                      {enabledLabels.length === 0 ? (
+                        <span>No museum is switched on. Pick some under Sources.</span>
+                      ) : (
+                        enabledLabels.length < ALL_SOURCES.length && (
+                          <span>
+                            Only {enabledLabels.map(sourceLabel).join(", ")}{" "}
+                            {enabledLabels.length === 1 ? "is" : "are"} switched on. Add
+                            the rest under Sources.
+                          </span>
+                        )
                       )}
                       {artist.trim() && (
                         <span>The Artist field is narrowing this. Try clearing it.</span>

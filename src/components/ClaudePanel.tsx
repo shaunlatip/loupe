@@ -90,6 +90,24 @@ function toolLabel(tool: string, input: Record<string, unknown> = {}): string {
   return tool;
 }
 
+/** The model occasionally emphasises a title with *asterisks*. Render the two
+ *  common forms as real emphasis instead of showing the markup; anything
+ *  else stays literal (no markdown pipeline for two-sentence replies). */
+function Prose({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.startsWith("**") && p.endsWith("**") && p.length > 4)
+          return <strong key={i}>{p.slice(2, -2)}</strong>;
+        if (p.startsWith("*") && p.endsWith("*") && p.length > 2)
+          return <em key={i}>{p.slice(1, -1)}</em>;
+        return p;
+      })}
+    </>
+  );
+}
+
 /** m:ss for the working line — a turn on the hosted engine can take 40s. */
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -361,7 +379,9 @@ export default function ClaudePanel({
               </div>
             )}
             {turn.kind === "assistant" && (
-              <p className="pretty text-[13px] leading-relaxed">{turn.text}</p>
+              <p className="pretty whitespace-pre-line text-[13px] leading-relaxed">
+                <Prose text={turn.text} />
+              </p>
             )}
             {turn.kind === "tool" && (
               <div

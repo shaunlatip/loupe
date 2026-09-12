@@ -165,7 +165,14 @@ export default function ResultGrid({
           </div>
         )
       ) : (
-        <div className="flex gap-6">
+        // A new query keeps the previous wall in place, dimmed, until the
+        // fanout lands — no collapse-to-skeleton, no layout jump.
+        <div
+          className={`flex gap-6 transition-opacity duration-200 ${
+            loading ? "pointer-events-none opacity-40" : "opacity-100"
+          }`}
+          aria-hidden={loading || undefined}
+        >
           {columns.map((col, c) => (
             <div key={c} className="flex min-w-0 flex-1 flex-col">
               {col.map(({ a, i }) => (
