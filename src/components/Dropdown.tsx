@@ -20,8 +20,9 @@ export function CaretDown({ className = "" }: { className?: string }) {
 /**
  * Flat-register dropdown — a 1px-ink trigger and a paper panel that pops in
  * from the trigger edge (see .animate-pop in globals.css). Closes on outside
- * click, Escape, or when a child calls the `close` render-prop. No radius, no
- * shadow: the panel reads as an extension of the trigger, elevation via border.
+ * click, Escape (focus returns to the trigger), or when a child calls the
+ * `close` render-prop. Arrow keys walk the option rows; Home/End jump. No
+ * radius, no shadow: the panel reads as an extension of the trigger.
  */
 export default function Dropdown({
   label,
@@ -45,6 +46,8 @@ export default function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -52,7 +55,26 @@ export default function Dropdown({
       if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+        return;
+      }
+      if (!panel.current) return;
+      const rows = Array.from(
+        panel.current.querySelectorAll<HTMLElement>("[data-option]"),
+      );
+      if (rows.length === 0) return;
+      const i = rows.indexOf(document.activeElement as HTMLElement);
+      let next = -1;
+      if (e.key === "ArrowDown") next = i < 0 ? 0 : (i + 1) % rows.length;
+      else if (e.key === "ArrowUp") next = i < 0 ? rows.length - 1 : (i - 1 + rows.length) % rows.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = rows.length - 1;
+      if (next >= 0) {
+        e.preventDefault();
+        rows[next].focus();
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -65,25 +87,29 @@ export default function Dropdown({
   return (
     <div ref={wrap} className={`relative ${className}`}>
       <button
+        ref={trigger}
         type="button"
         title={title}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-haspopup="menu"
         className={`flex items-center gap-1.5 border border-ink px-3 py-1 text-[12px] ${
           active ? "bg-accent text-paper" : "invert-hover"
         }`}
       >
         {label}
         <CaretDown
-          className={`h-3.5 w-3.5 shrink-0 transition-transform duration-120 ${
+          className={`h-3.5 w-3.5 shrink-0 transition-transform duration-150 ${
             open ? "rotate-180" : ""
           }`}
         />
       </button>
       {open && (
         <div
-          className={`animate-pop absolute z-30 mt-1 min-w-full border border-ink bg-paper ${
-            align === "right" ? "right-0" : "left-0"
+          ref={panel}
+          role="menu"
+          className={`absolute z-30 mt-1 min-w-full border border-ink bg-paper ${
+            align === "right" ? "animate-pop-right right-0" : "animate-pop left-0"
           } ${panelClassName}`}
         >
           {children(() => setOpen(false))}
@@ -112,13 +138,15 @@ export function DropdownOption({
   return (
     <button
       type="button"
+      role="menuitemcheckbox"
+      data-option
       onClick={onClick}
-      aria-pressed={selected}
-      className="invert-hover flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px]"
+      aria-checked={selected}
+      className="invert-hover press-none flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px] focus-visible:outline-offset-[-2px]"
     >
       <span
         aria-hidden
-        className={`block h-3 w-3 shrink-0 border border-current ${
+        className={`block h-3 w-3 shrink-0 border border-current transition-colors duration-100 ${
           selected ? "bg-current" : "bg-transparent"
         }`}
       />

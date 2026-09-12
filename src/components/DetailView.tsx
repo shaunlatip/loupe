@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
 import { sourceLabel } from "./SourceBadge";
@@ -8,10 +8,18 @@ import { sourceLabel } from "./SourceBadge";
 export default function DetailView({
   artwork,
   onClose,
+  onPrev,
+  onNext,
+  position,
   actions,
 }: {
   artwork: Artwork;
   onClose: () => void;
+  /** step to the neighbouring work in the current grid (← / →) */
+  onPrev?: () => void;
+  onNext?: () => void;
+  /** 1-based index and total in the current grid, for the counter */
+  position?: { index: number; total: number };
   /** slot for save/export affordances added in later slices */
   actions?: React.ReactNode;
 }) {
@@ -28,11 +36,24 @@ export default function DetailView({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
       if (e.key === "Escape") onClose();
+      else if (!typing && e.key === "ArrowLeft" && onPrev) onPrev();
+      else if (!typing && e.key === "ArrowRight" && onNext) onNext();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, onPrev, onNext]);
+
+  // Dialog focus: land on the close button on open, and hand focus back to
+  // whatever opened us when we unmount.
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeBtn.current?.focus();
+    return () => opener?.focus?.();
+  }, []);
 
   const rect = calm?.rect;
   const hasSafeZone = !!rect && rect.w > 0 && rect.h > 0;
@@ -44,16 +65,57 @@ export default function DetailView({
   const { width, height } = artwork.dims ?? {};
   const ratio = width && height ? width / height : undefined;
 
+  const stepBtn =
+    "invert-hover border border-ink px-3 py-1 text-[13px] font-semibold disabled:opacity-30 disabled:pointer-events-none";
+
   return (
-    <div className="animate-modal-in fixed inset-0 z-50 flex flex-col bg-paper">
-      <header className="flex items-center justify-between border-b border-ink px-6 py-3">
-        <span className="caption">{sourceLabel(artwork.source)}</span>
-        <button
-          onClick={onClose}
-          className="invert-hover border border-ink px-4 py-1 text-[13px] font-semibold"
-        >
-          Close
-        </button>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${artwork.title}, ${artwork.artist}`}
+      className="animate-modal-in fixed inset-0 z-50 flex flex-col bg-paper"
+    >
+      <header className="flex items-center justify-between gap-4 border-b border-ink px-6 py-3">
+        <span className="caption min-w-0 truncate">{sourceLabel(artwork.source)}</span>
+        <div className="flex items-center gap-2">
+          {position && (
+            <span className="caption tabular mr-2 hidden sm:inline">
+              {position.index} / {position.total}
+            </span>
+          )}
+          {(onPrev || onNext) && (
+            <>
+              <button
+                type="button"
+                onClick={onPrev}
+                disabled={!onPrev}
+                aria-label="Previous work"
+                title="Previous (←)"
+                className={stepBtn}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!onNext}
+                aria-label="Next work"
+                title="Next (→)"
+                className={stepBtn}
+              >
+                →
+              </button>
+            </>
+          )}
+          <button
+            ref={closeBtn}
+            onClick={onClose}
+            title="Close (Esc)"
+            className="invert-hover border border-ink px-4 py-1 text-[13px] font-semibold"
+          >
+            Close
+          </button>
+        </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-wash p-6 [container-type:size]">
@@ -95,12 +157,13 @@ export default function DetailView({
             )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
+              key={artwork.imageHires}
               src={artwork.imageHires}
               alt={artwork.title}
               decoding="async"
               referrerPolicy="no-referrer"
               ref={(el) => {
-                if (el?.complete) setHiresLoaded(true);
+                if (el?.complete && el.naturalWidth > 0) setHiresLoaded(true);
               }}
               onLoad={() => setHiresLoaded(true)}
               onError={() => setHiresLoaded(true)}
@@ -112,6 +175,11 @@ export default function DetailView({
                   : "block max-h-full max-w-full object-contain"
               }
             />
+            {!hiresLoaded && (
+              <span className="caption absolute right-2 bottom-2 bg-paper px-1.5 py-0.5">
+                loading full size…
+              </span>
+            )}
             {hasSafeZone && showSafeZone && (
               <div
                 className="animate-fade pointer-events-none absolute border border-accent"
@@ -130,7 +198,7 @@ export default function DetailView({
           </div>
         </div>
         <aside className="w-full shrink-0 overflow-y-auto border-t border-ink p-6 md:w-[360px] md:border-t-0 md:border-l">
-          <h2 className="text-[24px] leading-tight font-semibold">
+          <h2 className="balance text-[24px] leading-tight font-semibold">
             {artwork.title}
           </h2>
           <p className="mt-1 text-[15px]">{artwork.artist}</p>
@@ -154,6 +222,15 @@ export default function DetailView({
               <div>
                 <dt className="caption">Medium</dt>
                 <dd className="text-[13px]">{artwork.medium}</dd>
+              </div>
+            )}
+            {width && height && (
+              <div>
+                <dt className="caption">Full size</dt>
+                <dd className="tabular font-mono text-[13px]">
+                  {width} × {height} px
+                  <span className="caption ml-2">{(width / height).toFixed(2)}:1</span>
+                </dd>
               </div>
             )}
             {artwork.accession && (
@@ -183,6 +260,17 @@ export default function DetailView({
                 </dd>
               </div>
             )}
+            {calm && (
+              <div>
+                <dt className="caption">Calm score</dt>
+                <dd className="tabular font-mono text-[13px]">
+                  {calm.score}
+                  <span className="caption ml-2 font-sans">
+                    of 100 · share of the picture quiet enough to sit UI on
+                  </span>
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="caption">Source</dt>
               <dd className="text-[13px]">
@@ -208,7 +296,7 @@ export default function DetailView({
               />
               <span
                 aria-hidden
-                className={`block h-3 w-3 border border-ink ${
+                className={`block h-3 w-3 border border-ink transition-colors duration-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent ${
                   showSafeZone ? "bg-accent" : "bg-paper"
                 }`}
               />

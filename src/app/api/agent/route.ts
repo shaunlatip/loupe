@@ -35,13 +35,13 @@ export async function POST(req: NextRequest) {
   if (!claude) {
     if (!llmConfigured()) {
       return NextResponse.json(
-        { error: "The curator isn't configured on this deployment (missing OPENROUTER_API_KEY)." },
+        { error: "The curator isn't set up on this deployment. It needs OPENROUTER_API_KEY." },
         { status: 503 },
       );
     }
     if (rateLimited(clientKey(req), TURNS_PER_WINDOW, WINDOW_MS)) {
       return NextResponse.json(
-        { error: "Too many curator turns from this address — try again in a few minutes." },
+        { error: "Too many curator turns from this address. Try again in a few minutes." },
         { status: 429 },
       );
     }
@@ -59,7 +59,14 @@ export async function POST(req: NextRequest) {
         }
       };
 
-      const ctx = { cache: new Map<string, Artwork>(), emit, viewed: new Set<string>() };
+      // req.signal fires when the browser aborts the fetch (the Stop button
+      // or a closed tab); both engines check it between steps.
+      const ctx = {
+        cache: new Map<string, Artwork>(),
+        emit,
+        viewed: new Set<string>(),
+        signal: req.signal,
+      };
 
       try {
         if (claude) {

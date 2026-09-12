@@ -2,8 +2,17 @@ import type OpenAI from "openai";
 import { enabledSources, getArtworkById, searchSources } from "@/lib/adapters";
 import type { Artwork, SourceId } from "@/lib/types";
 
+/**
+ * NDJSON events both engines emit, in stream order:
+ *   text        — a prose block from the model
+ *   status      — a tool call has started (`tool`, `input`)
+ *   tool_result — that call finished (`tool`, `summary`, `ok`, `count`)
+ *   selection   — present_selection pushed works to the grid
+ *   done        — turn over (`sessionId`, optional `model`, optional `error`)
+ *   error       — the turn failed (`message`)
+ */
 export interface AgentStreamEvent {
-  type: "text" | "status" | "selection" | "done" | "error";
+  type: "text" | "status" | "tool_result" | "selection" | "done" | "error";
   [key: string]: unknown;
 }
 
@@ -15,7 +24,35 @@ export interface MuseumToolContext {
   /** ids the model has actually seen a thumbnail for — feeds the hosted
    *  engine's safety-net selection when a turn ends without present_selection */
   viewed?: Set<string>;
+  /** fires when the client stopped listening — engines end the turn early */
+  signal?: AbortSignal;
 }
+
+/** Summaries the panel shows once a tool call returns. */
+export function toolResultEvent(
+  tool: string,
+  outcome: { count: number; unavailable?: string[]; capped?: boolean },
+): AgentStreamEvent {
+  const { count, unavailable = [] } = outcome;
+  let summary: string;
+  if (tool === "search_artworks") {
+    summary =
+      count === 0 ? "nothing matched" : `${count} ${count === 1 ? "result" : "results"}`;
+    if (unavailable.length) summary += ` · ${unavailable.join(", ")} didn't answer`;
+  } else if (tool === "view_artworks") {
+    summary = count === 0 ? "no images available" : `looked at ${count}`;
+    if (unavailable.length) summary += ` · ${unavailable.length} unavailable`;
+  } else if (tool === "present_selection") {
+    summary = `${count} ${count === 1 ? "work" : "works"} on the wall`;
+  } else {
+    summary = "done";
+  }
+  return { type: "tool_result", tool, summary, ok: count > 0, count };
+}
+
+/** Which museums the curator may restrict a search to — every registered
+ *  adapter; dormant ones simply return nothing. */
+export const TOOL_SOURCE_IDS = ["aic", "cma", "met", "smk", "mia", "rijks", "harvard"] as const;
 
 /** What a tool call produced: text for the `tool` message, plus any images the
  *  model should look at (OpenAI-format tool messages are text-only, so the
@@ -97,7 +134,7 @@ export const MUSEUM_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           artist: { type: "string", description: "artist name, e.g. 'Monet'" },
           source: {
             type: "string",
-            enum: ["aic", "cma", "met", "rijks"],
+            enum: [...TOOL_SOURCE_IDS],
             description: "restrict to one museum; omit to search all",
           },
           yearFrom: { type: "number" },
@@ -182,6 +219,12 @@ async function searchArtworks(args: SearchArgs, ctx: MuseumToolContext): Promise
   const errNote = errors.length
     ? ` (unavailable: ${errors.map((e) => e.source).join(", ")})`
     : "";
+  ctx.emit(
+    toolResultEvent("search_artworks", {
+      count: rows.length,
+      unavailable: errors.map((e) => e.source),
+    }),
+  );
   return { text: `${rows.length} results${errNote}\n${JSON.stringify(rows)}` };
 }
 
@@ -193,6 +236,7 @@ async function viewArtworks(
   const ids = requested.slice(0, VIEW_LIMIT);
   const lines: string[] = [];
   const images: NonNullable<ToolOutcome["images"]> = [];
+  const unavailable: string[] = [];
   if (requested.length > VIEW_LIMIT) {
     lines.push(`capped to the first ${VIEW_LIMIT} of ${requested.length} requested ids`);
   }
@@ -208,6 +252,7 @@ async function viewArtworks(
     }
     if (!artwork) {
       lines.push(`${id}: not found (not from a search result this conversation)`);
+      unavailable.push(id);
       continue;
     }
 
@@ -215,6 +260,7 @@ async function viewArtworks(
     const label = `${artwork.id} · ${artwork.title} · ${artwork.artist} · ${artwork.date}`;
     if ("error" in thumb) {
       lines.push(`${label} — image unavailable: ${thumb.error}`);
+      unavailable.push(id);
       continue;
     }
     lines.push(`image ${images.length + 1}: ${label}`);
@@ -222,6 +268,7 @@ async function viewArtworks(
     ctx.viewed?.add(artwork.id);
   }
 
+  ctx.emit(toolResultEvent("view_artworks", { count: images.length, unavailable }));
   return { text: lines.join("\n") || "nothing to view", images };
 }
 
@@ -242,6 +289,7 @@ async function presentSelection(
     if (fetched) resolved.push(fetched);
   }
   ctx.emit({ type: "selection", artworks: resolved, note: args.note ?? "" });
+  ctx.emit(toolResultEvent("present_selection", { count: resolved.length }));
   return { text: `presented ${resolved.length} artworks to the user` };
 }
 

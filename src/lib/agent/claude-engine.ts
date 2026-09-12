@@ -4,8 +4,10 @@ import { z } from "zod";
 import { enabledSources, getArtworkById, searchSources } from "@/lib/adapters";
 import { CURATOR_PROMPT } from "@/lib/agent/prompt";
 import {
+  TOOL_SOURCE_IDS,
   VIEW_LIMIT,
   fetchThumbBase64,
+  toolResultEvent,
   type MuseumToolContext,
 } from "@/lib/agent/tools";
 import type { Artwork, SourceId } from "@/lib/types";
@@ -33,7 +35,7 @@ function createMuseumServer(ctx: MuseumToolContext) {
           q: z.string().optional().describe("keyword query, e.g. 'nocturne', 'mist', 'still life'"),
           artist: z.string().optional().describe("artist name, e.g. 'Monet'"),
           source: z
-            .enum(["aic", "cma", "met", "rijks"])
+            .enum(TOOL_SOURCE_IDS)
             .optional()
             .describe("restrict to one museum; omit to search all"),
           yearFrom: z.number().optional(),
@@ -62,6 +64,12 @@ function createMuseumServer(ctx: MuseumToolContext) {
           const errNote = errors.length
             ? ` (unavailable: ${errors.map((e) => e.source).join(", ")})`
             : "";
+          ctx.emit(
+            toolResultEvent("search_artworks", {
+              count: rows.length,
+              unavailable: errors.map((e) => e.source),
+            }),
+          );
           return {
             content: [
               {
@@ -85,6 +93,8 @@ function createMuseumServer(ctx: MuseumToolContext) {
           const capped = args.ids.length > VIEW_LIMIT;
           const ids = args.ids.slice(0, VIEW_LIMIT);
           const content: CallToolResult["content"] = [];
+          let seen = 0;
+          const unavailable: string[] = [];
           if (capped) {
             content.push({
               type: "text" as const,
@@ -106,6 +116,7 @@ function createMuseumServer(ctx: MuseumToolContext) {
                 type: "text" as const,
                 text: `${id}: not found (not from a search result this conversation)`,
               });
+              unavailable.push(id);
               continue;
             }
 
@@ -115,6 +126,7 @@ function createMuseumServer(ctx: MuseumToolContext) {
                 type: "text" as const,
                 text: `${artwork.id} · ${artwork.title} · ${artwork.artist} · ${artwork.date} — image unavailable: ${thumb.error}`,
               });
+              unavailable.push(id);
               continue;
             }
 
@@ -127,8 +139,11 @@ function createMuseumServer(ctx: MuseumToolContext) {
               data: thumb.data,
               mimeType: thumb.mimeType,
             });
+            seen++;
+            ctx.viewed?.add(artwork.id);
           }
 
+          ctx.emit(toolResultEvent("view_artworks", { count: seen, unavailable }));
           return { content };
         },
       ),
@@ -152,6 +167,7 @@ function createMuseumServer(ctx: MuseumToolContext) {
             if (fetched) resolved.push(fetched);
           }
           ctx.emit({ type: "selection", artworks: resolved, note: args.note });
+          ctx.emit(toolResultEvent("present_selection", { count: resolved.length }));
           return {
             content: [
               { type: "text" as const, text: `presented ${resolved.length} artworks to the user` },
@@ -172,11 +188,18 @@ export async function runClaudeCurator(
 ): Promise<void> {
   const museum = createMuseumServer(ctx);
   let sid = sessionId;
+  // Stop button: the route's request signal → the SDK's abort controller, so
+  // the CLI subprocess is torn down instead of finishing a turn nobody sees.
+  const abort = new AbortController();
+  const onAbort = () => abort.abort();
+  if (ctx.signal?.aborted) return;
+  ctx.signal?.addEventListener("abort", onAbort, { once: true });
   try {
     const conversation = query({
       prompt: message,
       options: {
         resume: sessionId,
+        abortController: abort,
         systemPrompt: CURATOR_PROMPT,
         mcpServers: { museum },
         allowedTools: [
@@ -208,12 +231,16 @@ export async function runClaudeCurator(
         ctx.emit({
           type: "done",
           sessionId: msg.session_id ?? sid,
+          model: "claude",
           ...(msg.subtype !== "success" ? { error: msg.subtype } : {}),
         });
       }
     }
   } catch (err) {
+    if (ctx.signal?.aborted) return; // stopped by the user; not an error
     ctx.emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    ctx.signal?.removeEventListener("abort", onAbort);
   }
 }
 

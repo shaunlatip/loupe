@@ -81,13 +81,18 @@ export async function runOpenRouterCurator(
     for (let step = 0; step < MAX_STEPS; step++) {
       // stop before the platform kills us, so the fallback below can run
       if (Date.now() - start > TIME_BUDGET_MS) break;
-      const res = await client.chat.completions.create({
-        ...modelParams(CURATOR_MODELS),
-        messages: history,
-        tools: MUSEUM_TOOLS,
-        tool_choice: "auto",
-        max_tokens: 2048,
-      });
+      // the client pressed Stop (or left) — nobody is listening
+      if (ctx.signal?.aborted) return;
+      const res = await client.chat.completions.create(
+        {
+          ...modelParams(CURATOR_MODELS),
+          messages: history,
+          tools: MUSEUM_TOOLS,
+          tool_choice: "auto",
+          max_tokens: 2048,
+        },
+        { signal: ctx.signal },
+      );
       model = res.model;
       const msg = res.choices[0]?.message;
       if (!msg) break;
@@ -149,7 +154,7 @@ export async function runOpenRouterCurator(
         ctx.emit({
           type: "selection",
           artworks: picks,
-          note: "A quick set gathered before the time limit — ask the curator to refine it.",
+          note: "A first pass, gathered before the time limit ran out. Ask for a refinement to go deeper.",
         });
       }
     }
@@ -158,6 +163,7 @@ export async function runOpenRouterCurator(
     SESSIONS.set(sid, stripImages(history));
     ctx.emit({ type: "done", sessionId: sid, model });
   } catch (err) {
+    if (ctx.signal?.aborted) return; // stopped by the user; not an error
     ctx.emit({ type: "error", message: describeLlmError(err) });
   }
 }

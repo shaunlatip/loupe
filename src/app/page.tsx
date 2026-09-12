@@ -11,7 +11,7 @@ import type {
 } from "@/lib/types";
 import { peekCalm, requestCalmForAll, subscribeCalm } from "@/lib/calm-client";
 import { enrichArtworksWithMovements } from "@/lib/movements";
-import { mergeCategoryQueries } from "@/lib/presets";
+import { CATEGORIES, getCategory, mergeCategoryQueries } from "@/lib/presets";
 import { type HSL, colorDistance } from "@/lib/color";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
@@ -20,12 +20,15 @@ import FilterRow, { type SortMode } from "@/components/FilterRow";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import ClaudePanel from "@/components/ClaudePanel";
+import { sourceLabel } from "@/components/SourceBadge";
 import {
   type Collection,
   addArtwork,
   createCollection,
+  deleteCollection,
   getCollection,
   listCollections,
+  removeArtwork,
 } from "@/lib/collections-client";
 import { serverCanFetch } from "@/lib/source-egress";
 import { fileBaseName, imageExtension } from "@/lib/slug";
@@ -92,6 +95,9 @@ interface ResultState {
   artworks: Artwork[];
   errors: SourceError[];
   origin: "manual" | "claude" | "collection";
+  /** wall title: the query, the category labels, or the collection name */
+  heading?: string;
+  /** curator's note under the title */
   note?: string;
 }
 
@@ -123,6 +129,13 @@ const FIELD_LABELS: Record<string, string> = {
   datingPeriod: "century",
   q: "q",
   tags: "tags",
+};
+
+const METHOD_LABELS: Record<Interpretation["method"], string> = {
+  vocab: "matched the shared vocabulary",
+  claude: "compiled by Claude",
+  llm: "compiled by the model",
+  fallback: "searched as typed",
 };
 
 interface QueryChip {
@@ -182,6 +195,18 @@ function removeQueryField(query: SearchQuery, chipId: string): SearchQuery {
 const ALL_SOURCES: SourceId[] = ["aic", "cma", "met", "smk", "mia"];
 const EMPTY: ResultState = { artworks: [], errors: [], origin: "manual" };
 
+/** Starting points on the empty wall — each one a real query that returns
+ *  well. Keyword searches and taxonomy picks, mixed. */
+const STARTERS: { label: string; run: "search" | "category"; value: string }[] = [
+  { label: "Whistler nocturnes", run: "search", value: "nocturne" },
+  { label: "Monet's mist", run: "search", value: "monet mist" },
+  { label: "Dutch Golden Age", run: "category", value: "dutch-golden-age" },
+  { label: "Still life", run: "category", value: "still-life" },
+  { label: "Ukiyo-e prints", run: "category", value: "ukiyo-e" },
+  { label: "Seascapes", run: "category", value: "seascape" },
+  { label: "Water lilies", run: "search", value: "water lilies" },
+];
+
 /** Hand a Blob to the browser as a download. */
 function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -203,12 +228,12 @@ function saveBlob(blob: Blob, filename: string): void {
 async function downloadDirect(artwork: Artwork): Promise<string> {
   try {
     const res = await fetch(artwork.imageHires, { referrerPolicy: "no-referrer" });
-    if (!res.ok) return "Download failed";
+    if (!res.ok) return "The museum didn't serve the file. Try again, or open it at the source.";
     const filename = `${fileBaseName(artwork)}.${imageExtension(artwork.imageHires)}`;
     saveBlob(await res.blob(), filename);
-    return `Downloaded ${filename}`;
+    return `Saved ${filename}`;
   } catch {
-    return "Download failed";
+    return "The download didn't go through. Check the connection and try again.";
   }
 }
 
@@ -230,14 +255,14 @@ async function triggerDownload(body: {
       body: JSON.stringify(body),
     });
   } catch {
-    return "Download failed";
+    return "The download didn't go through. Check the connection and try again.";
   }
   if (!res.ok) {
     try {
       const j = (await res.json()) as { error?: string };
-      return j.error ?? "Download failed";
+      return j.error ?? "The download didn't go through.";
     } catch {
-      return "Download failed";
+      return "The download didn't go through.";
     }
   }
   const cd = res.headers.get("content-disposition") ?? "";
@@ -245,8 +270,8 @@ async function triggerDownload(body: {
   const failed = Number(res.headers.get("x-export-failed") ?? "0");
   saveBlob(await res.blob(), filename);
   return failed > 0
-    ? `Downloaded ${filename} — ${failed} image${failed === 1 ? "" : "s"} unavailable`
-    : `Downloaded ${filename}`;
+    ? `Saved ${filename}. ${failed} ${failed === 1 ? "image was" : "images were"} unavailable and skipped.`
+    : `Saved ${filename}`;
 }
 
 export default function Home() {
@@ -274,17 +299,33 @@ export default function Home() {
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [interpretOn, setInterpretOn] = useState(false);
   const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
+  // last keyword the user searched — the no-results state repeats it
+  const [lastQuery, setLastQuery] = useState("");
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [activeCollection, setActiveCollection] = useState<string | undefined>();
   const [exporting, setExporting] = useState<string | undefined>();
   const [exportNote, setExportNote] = useState<string | undefined>();
+  // one-line confirmation inside the detail panel after Save / Remove
+  const [saveNote, setSaveNote] = useState<string | undefined>();
 
   // Collections live in localStorage (Loupe deploys to a read-only host) — read
   // them once on mount, client-side only.
   useEffect(() => {
     setCollections(listCollections());
   }, []);
+
+  // Notes clear themselves; a stale "Saved …" beside a different work lies.
+  useEffect(() => {
+    if (!saveNote) return;
+    const t = setTimeout(() => setSaveNote(undefined), 4000);
+    return () => clearTimeout(t);
+  }, [saveNote]);
+  useEffect(() => {
+    if (!exportNote) return;
+    const t = setTimeout(() => setExportNote(undefined), 8000);
+    return () => clearTimeout(t);
+  }, [exportNote]);
 
   // "calmest" sort: re-render (and re-sort, via the calmTick dependency
   // below) whenever any card's score resolves. Subscribed unconditionally
@@ -296,39 +337,44 @@ export default function Home() {
     if (sort === "calmest") requestCalmForAll(results.artworks);
   }, [sort, results.artworks]);
 
-  const fetchResults = useCallback(
-    async (params: URLSearchParams, origin: ResultState["origin"]) => {
-      setLoading(true);
-      setSearched(true);
-      setActiveCollection(undefined);
-      setActiveMovements([]);
-      try {
-        const res = await fetch(`/api/search?${params}`);
-        const json = (await res.json()) as SearchResponse;
-        setResults({ ...json, origin });
-      } catch {
-        setResults({ ...EMPTY, origin });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
-
   // Latest-wins guard: multi-select taxonomy can fire overlapping searches as
   // the user ticks several categories in a row; only the newest response is
   // allowed to land so an earlier, slower fanout can't overwrite it.
   const reqSeq = useRef(0);
 
-  // POST a full SearchQuery (interpret mode + chip edits + taxonomy merge) —
-  // same fanout as GET
-  const runQuerySearch = useCallback(
-    async (query: SearchQuery) => {
+  const fetchResults = useCallback(
+    async (params: URLSearchParams, heading: string) => {
       const myId = ++reqSeq.current;
       setLoading(true);
       setSearched(true);
       setActiveCollection(undefined);
       setActiveMovements([]);
+      setResults((r) => ({ ...r, heading, note: undefined, origin: "manual" }));
+      try {
+        const res = await fetch(`/api/search?${params}`);
+        const json = (await res.json()) as SearchResponse;
+        if (reqSeq.current !== myId) return;
+        setResults({ ...json, origin: "manual", heading });
+      } catch {
+        if (reqSeq.current !== myId) return;
+        setResults({ ...EMPTY, heading });
+      } finally {
+        if (reqSeq.current === myId) setLoading(false);
+      }
+    },
+    [],
+  );
+
+  // POST a full SearchQuery (interpret mode + chip edits + taxonomy merge) —
+  // same fanout as GET
+  const runQuerySearch = useCallback(
+    async (query: SearchQuery, heading: string) => {
+      const myId = ++reqSeq.current;
+      setLoading(true);
+      setSearched(true);
+      setActiveCollection(undefined);
+      setActiveMovements([]);
+      setResults((r) => ({ ...r, heading, note: undefined, origin: "manual" }));
       try {
         const res = await fetch("/api/search", {
           method: "POST",
@@ -337,10 +383,10 @@ export default function Home() {
         });
         const json = (await res.json()) as SearchResponse;
         if (reqSeq.current !== myId) return; // superseded
-        setResults({ ...json, origin: "manual" });
+        setResults({ ...json, origin: "manual", heading });
       } catch {
         if (reqSeq.current !== myId) return;
-        setResults({ ...EMPTY, origin: "manual" });
+        setResults({ ...EMPTY, heading });
       } finally {
         if (reqSeq.current === myId) setLoading(false);
       }
@@ -353,10 +399,11 @@ export default function Home() {
       setActiveCategories([]);
       setLoading(true);
       setSearched(true);
+      setResults((r) => ({ ...r, heading: q, note: undefined, origin: "manual" }));
       // the route itself degrades; this is only for network-level failure
       let interp: Interpretation = {
         query: { q },
-        explanation: "searched as-is",
+        explanation: "Searched as typed.",
         method: "fallback",
       };
       try {
@@ -370,13 +417,14 @@ export default function Home() {
         /* keep fallback */
       }
       setInterpretation(interp);
-      await runQuerySearch(interp.query);
+      await runQuerySearch(interp.query, q);
     },
     [runQuerySearch],
   );
 
   const runSearch = useCallback(
     (q: string) => {
+      setLastQuery(q);
       if (interpretOn) {
         void runInterpret(q);
         return;
@@ -385,7 +433,7 @@ export default function Home() {
       setActiveCategories([]);
       const params = new URLSearchParams({ q, sources: sources.join(",") });
       if (artist.trim()) params.set("artist", artist.trim());
-      void fetchResults(params, "manual");
+      void fetchResults(params, artist.trim() ? `${q} · ${artist.trim()}` : q);
     },
     [interpretOn, runInterpret, artist, sources, fetchResults],
   );
@@ -395,14 +443,27 @@ export default function Home() {
       if (!interpretation) return;
       const next = removeQueryField(interpretation.query, chipId);
       setInterpretation({ ...interpretation, query: next });
-      void runQuerySearch(next);
+      void runQuerySearch(next, lastQuery);
     },
-    [interpretation, runQuerySearch],
+    [interpretation, runQuerySearch, lastQuery],
   );
 
   const setInterpretMode = useCallback((on: boolean) => {
     setInterpretOn(on);
     setInterpretation(null); // entering has no chips yet; leaving clears them
+  }, []);
+
+  // Back to the empty wall: cancel anything in flight, drop every selection.
+  const clearAll = useCallback(() => {
+    reqSeq.current++;
+    setLoading(false);
+    setResults(EMPTY);
+    setSearched(false);
+    setInterpretation(null);
+    setActiveCategories([]);
+    setActiveCollection(undefined);
+    setActiveMovements([]);
+    setLastQuery("");
   }, []);
 
   // Run the intersection of a taxonomy selection set. Empty set clears back to
@@ -414,11 +475,16 @@ export default function Home() {
       setActiveCollection(undefined);
       if (ids.length === 0) {
         reqSeq.current++; // cancel any in-flight taxonomy fetch
+        setLoading(false);
         setResults(EMPTY);
         setSearched(false);
         return;
       }
-      void runQuerySearch(mergeCategoryQueries(ids));
+      const heading = ids
+        .map((id) => getCategory(id)?.label ?? id)
+        .join(" + ");
+      setLastQuery(heading);
+      void runQuerySearch(mergeCategoryQueries(ids), heading);
     },
     [runQuerySearch],
   );
@@ -470,15 +536,23 @@ export default function Home() {
     id: c.id,
     name: c.name,
     count: c.artworks.length,
+    has: open ? c.artworks.some((a) => a.id === open.id) : false,
   }));
 
   const saveToCollection = useCallback(
     (collectionId: string) => {
       if (!open) return;
-      setCollections(addArtwork(collectionId, open));
+      const col = collections.find((c) => c.id === collectionId);
+      if (col?.artworks.some((a) => a.id === open.id)) {
+        setCollections(removeArtwork(collectionId, open.id));
+        setSaveNote(`Removed from ${col.name}`);
+      } else {
+        setCollections(addArtwork(collectionId, open));
+        setSaveNote(`Saved to ${col?.name ?? "collection"}`);
+      }
       setSaveOpen(false);
     },
-    [open],
+    [open, collections],
   );
 
   const createAndSave = useCallback(
@@ -488,6 +562,7 @@ export default function Home() {
       const target = withNew.find((c) => c.name === name);
       if (target) {
         setCollections(addArtwork(target.id, open));
+        setSaveNote(`Saved to ${name}`);
       } else {
         setCollections(withNew);
       }
@@ -500,6 +575,8 @@ export default function Home() {
     (id: string) => {
       const c = collections.find((x) => x.id === id);
       if (!c) return;
+      reqSeq.current++;
+      setLoading(false);
       setSearched(true);
       setActiveCategories([]);
       setInterpretation(null);
@@ -509,10 +586,46 @@ export default function Home() {
         artworks: c.artworks,
         errors: [],
         origin: "collection",
-        note: `Collection — ${c.name}`,
+        heading: c.name,
+        note: c.artworks.length === 0 ? "Nothing saved here yet." : undefined,
       });
     },
     [collections],
+  );
+
+  const removeCollection = useCallback(
+    (id: string) => {
+      const c = collections.find((x) => x.id === id);
+      if (!c) return;
+      const n = c.artworks.length;
+      if (
+        n > 0 &&
+        !window.confirm(`Delete “${c.name}” and its ${n} saved ${n === 1 ? "work" : "works"}?`)
+      )
+        return;
+      setCollections(deleteCollection(id));
+      if (activeCollection === id) clearAll();
+    },
+    [collections, activeCollection, clearAll],
+  );
+
+  // Viewing a collection: the detail's Remove takes the work out and the wall
+  // updates in place.
+  const removeFromActiveCollection = useCallback(
+    (artwork: Artwork) => {
+      if (!activeCollection) return;
+      const next = removeArtwork(activeCollection, artwork.id);
+      setCollections(next);
+      const c = next.find((x) => x.id === activeCollection);
+      setResults((r) => ({
+        ...r,
+        artworks: r.artworks.filter((a) => a.id !== artwork.id),
+        note: c && c.artworks.length === 0 ? "Nothing saved here yet." : undefined,
+      }));
+      setSaveNote(`Removed from ${c?.name ?? "collection"}`);
+      setOpen(null);
+    },
+    [activeCollection],
   );
 
   // Collections are client-side now, so resolve the artworks here and hand them
@@ -520,7 +633,7 @@ export default function Home() {
   const exportCollection = useCallback(async (id: string) => {
     const collection = getCollection(id);
     if (!collection || collection.artworks.length === 0) {
-      setExportNote("Nothing to export");
+      setExportNote("Nothing to download yet.");
       return;
     }
     setExporting(id);
@@ -537,22 +650,36 @@ export default function Home() {
     }
   }, []);
 
+  const [downloading, setDownloading] = useState(false);
   const exportOne = useCallback(async (artwork: Artwork) => {
     setExportNote(undefined);
-    setExportNote(
-      serverCanFetch(artwork.source)
-        ? await triggerDownload({ artworks: [artwork] })
-        : await downloadDirect(artwork),
-    );
+    setDownloading(true);
+    try {
+      setExportNote(
+        serverCanFetch(artwork.source)
+          ? await triggerDownload({ artworks: [artwork] })
+          : await downloadDirect(artwork),
+      );
+    } finally {
+      setDownloading(false);
+    }
   }, []);
 
   const onSelection = useCallback((artworks: Artwork[], note: string) => {
+    reqSeq.current++;
+    setLoading(false);
     setSearched(true);
     setActiveCategories([]);
     setInterpretation(null);
     setActiveCollection(undefined);
     setActiveMovements([]);
-    setResults({ artworks, errors: [], origin: "claude", note });
+    setResults({
+      artworks,
+      errors: [],
+      origin: "claude",
+      heading: "Curator's selection",
+      note,
+    });
   }, []);
 
   // Client-side only — enrich, filter, then sort over the already-fetched
@@ -606,10 +733,33 @@ export default function Home() {
     // a re-sort as lazily-computed scores resolve; it carries no data itself.
   }, [results.artworks, sort, heroOnly, activeMovements, targetColor, calmTick]);
 
+  // Detail navigation: ← / → walk the wall in its displayed order.
+  const openIndex = open ? displayArtworks.findIndex((a) => a.id === open.id) : -1;
+  const openPrev =
+    openIndex > 0
+      ? () => {
+          setSaveOpen(false);
+          setOpen(displayArtworks[openIndex - 1]);
+        }
+      : undefined;
+  const openNext =
+    openIndex >= 0 && openIndex < displayArtworks.length - 1
+      ? () => {
+          setSaveOpen(false);
+          setOpen(displayArtworks[openIndex + 1]);
+        }
+      : undefined;
+
+  const showWall = searched || results.artworks.length > 0;
+  const enabledLabels = ALL_SOURCES.filter((s) => sources.includes(s));
+
   return (
     <>
       <main
-        className={`mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-200 ease-out ${
+        // The detail view is a full-screen dialog; everything under it is
+        // inert so tab order and screen readers stay inside the dialog.
+        inert={open ? true : undefined}
+        className={`mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-200 ease-[var(--ease-in-out)] ${
           panelOpen ? "lg:mr-[420px]" : ""
         }`}
       >
@@ -617,11 +767,18 @@ export default function Home() {
           <div className="flex items-end justify-between gap-4">
             {/* display — wordmark is intentionally lowercase */}
             <h1 className="text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[44px]">
-              loupe
+              <button
+                type="button"
+                onClick={clearAll}
+                title="Back to the start"
+                className="press-none text-inherit"
+              >
+                loupe
+              </button>
             </h1>
             <div className="flex items-center gap-3">
               <p className="caption hidden lg:block">
-                Search open-access museum art · Built by{" "}
+                Open-access museum art for design backdrops · by{" "}
                 <a
                   href="https://latip.me"
                   target="_blank"
@@ -642,6 +799,8 @@ export default function Home() {
               </p>
               <button
                 onClick={() => setPanelOpen((v) => !v)}
+                aria-pressed={panelOpen}
+                aria-controls="curator-panel"
                 className={`border border-ink px-4 py-2 text-[13px] font-semibold ${
                   panelOpen ? "bg-accent text-paper" : "invert-hover"
                 }`}
@@ -652,22 +811,24 @@ export default function Home() {
           </div>
           <SearchBar
             onSearch={runSearch}
+            onClear={clearAll}
             loading={loading}
             interpret={interpretOn}
             onSetInterpret={setInterpretMode}
           />
           {interpretation && (
-            <div className="flex flex-col gap-2">
+            <div className="animate-rise flex flex-col gap-2">
               <p className="caption">
                 {interpretation.explanation}{" "}
-                <span className="font-mono text-[10px]">· {interpretation.method}</span>
+                <span className="text-ink/60">· {METHOD_LABELS[interpretation.method]}</span>
               </p>
               {queryChips(interpretation.query).length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {queryChips(interpretation.query).map((chip) => (
+                  {queryChips(interpretation.query).map((chip, i) => (
                     <span
                       key={chip.id}
-                      className="flex items-center border border-ink text-[11px]"
+                      className="animate-rise flex items-center border border-ink text-[11px]"
+                      style={{ ["--stagger" as string]: `${i * 30}ms` }}
                     >
                       <span className="py-1 pl-2 text-muted-foreground">
                         {chip.label}:
@@ -677,7 +838,8 @@ export default function Home() {
                         type="button"
                         onClick={() => removeChip(chip.id)}
                         aria-label={`Remove ${chip.label}`}
-                        className="invert-hover self-stretch border-l border-ink px-1.5"
+                        title="Remove and search again"
+                        className="invert-hover press-none self-stretch border-l border-ink px-2 text-[13px] leading-none"
                       >
                         ×
                       </button>
@@ -714,37 +876,92 @@ export default function Home() {
             active={activeCollection}
             onOpen={openCollection}
             onExport={(id) => void exportCollection(id)}
+            onDelete={removeCollection}
             exporting={exporting}
           />
           {exportNote && (
-            <p className="caption animate-fade mt-2 font-mono text-[10px]">
+            <p className="caption animate-rise mt-2" role="status">
               {exportNote}
             </p>
           )}
         </div>
 
         <div className="pt-8">
-          {searched || results.artworks.length > 0 ? (
+          {showWall ? (
             <>
               {heroOnly && heroHiddenCount > 0 && (
-                <p className="caption mb-4">
-                  Fits-a-hero hides {heroHiddenCount}{" "}
-                  {heroHiddenCount === 1 ? "work" : "works"} with unknown dimensions.
+                <p className="caption animate-rise mb-4">
+                  Fits a hero is hiding {heroHiddenCount}{" "}
+                  {heroHiddenCount === 1 ? "work" : "works"} whose size the museum
+                  doesn&rsquo;t report.
                 </p>
               )}
               {sort === "similar" && colorlessCount > 0 && (
-                <p className="caption mb-4">
-                  Color ranking uses dominant-color data (AIC, SMK, Harvard) —{" "}
-                  {colorlessCount}{" "}
-                  {colorlessCount === 1 ? "work has" : "works have"} none and sort
-                  last.
+                <p className="caption animate-rise mb-4">
+                  Color ranking uses each museum&rsquo;s own palette data (AIC, SMK,
+                  Harvard). {colorlessCount}{" "}
+                  {colorlessCount === 1 ? "work has" : "works have"} none and sit at
+                  the end.
                 </p>
               )}
               <ResultGrid
                 artworks={displayArtworks}
                 errors={results.errors}
+                heading={results.heading}
                 note={results.note}
                 loading={loading}
+                emptyHint={
+                  results.origin === "collection" ? (
+                    <span>Open any work and press Save to add it here.</span>
+                  ) : heroOnly && results.artworks.length > 0 ? (
+                    <span>
+                      Every result failed the hero rule (landscape, 2000px wide or
+                      more). Turn off Fits a hero to see them.
+                    </span>
+                  ) : activeMovements.length > 0 && results.artworks.length > 0 ? (
+                    <span>No work here carries that movement. Clear the Movement filter.</span>
+                  ) : (
+                    <>
+                      {enabledLabels.length < ALL_SOURCES.length && (
+                        <span>
+                          Only {enabledLabels.map(sourceLabel).join(", ")}{" "}
+                          {enabledLabels.length === 1 ? "is" : "are"} switched on. Add
+                          the rest under Sources.
+                        </span>
+                      )}
+                      {artist.trim() && (
+                        <span>The Artist field is narrowing this. Try clearing it.</span>
+                      )}
+                      {!interpretOn && lastQuery && (
+                        <span>
+                          Keyword mode matches museum records literally.{" "}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInterpretMode(true);
+                              void runInterpret(lastQuery);
+                            }}
+                            className="underline underline-offset-2 hover:text-ink"
+                          >
+                            Interpret &ldquo;{lastQuery}&rdquo; instead
+                          </button>
+                          .
+                        </span>
+                      )}
+                      <span>
+                        Or{" "}
+                        <button
+                          type="button"
+                          onClick={() => setPanelOpen(true)}
+                          className="underline underline-offset-2 hover:text-ink"
+                        >
+                          ask the curator
+                        </button>{" "}
+                        to search across phrasing and sources for you.
+                      </span>
+                    </>
+                  )
+                }
                 onOpen={(a) => {
                   setSaveOpen(false);
                   setOpen(a);
@@ -752,9 +969,14 @@ export default function Home() {
               />
             </>
           ) : (
-            <p className="caption py-24 text-center">
-              Search the open collections, pick a category, or ask the curator.
-            </p>
+            <EmptyWall
+              onSearch={runSearch}
+              onCategory={(id) => {
+                setActiveCategories([id]);
+                runCategories([id]);
+              }}
+              onCurator={() => setPanelOpen(true)}
+            />
           )}
         </div>
       </main>
@@ -766,24 +988,40 @@ export default function Home() {
             setOpen(null);
             setSaveOpen(false);
           }}
+          onPrev={openPrev}
+          onNext={openNext}
+          position={
+            openIndex >= 0 ? { index: openIndex + 1, total: displayArtworks.length } : undefined
+          }
           actions={
             <>
               <div className="flex gap-2">
                 <button
                   onClick={() => setSaveOpen((v) => !v)}
+                  aria-expanded={saveOpen}
                   className={`flex-1 border border-ink px-4 py-2 text-[13px] font-semibold ${
                     saveOpen ? "bg-ink text-paper" : "invert-hover"
                   }`}
                 >
-                  Save
+                  {collectionSummaries.some((c) => c.has) ? "Saved" : "Save"}
                 </button>
                 <button
                   onClick={() => void exportOne(open)}
-                  className="invert-hover flex-1 border border-ink px-4 py-2 text-[13px] font-semibold"
+                  disabled={downloading}
+                  aria-busy={downloading}
+                  className="invert-hover flex-1 border border-ink px-4 py-2 text-[13px] font-semibold disabled:opacity-40"
                 >
-                  Download
+                  {downloading ? "Fetching…" : "Download"}
                 </button>
               </div>
+              {results.origin === "collection" && activeCollection && (
+                <button
+                  onClick={() => removeFromActiveCollection(open)}
+                  className="invert-hover border border-ink px-4 py-2 text-[13px]"
+                >
+                  Remove from this collection
+                </button>
+              )}
               {saveOpen && (
                 <SaveMenu
                   artwork={open}
@@ -792,9 +1030,9 @@ export default function Home() {
                   onCreate={(name) => void createAndSave(name)}
                 />
               )}
-              {exportNote && (
-                <p className="caption animate-fade font-mono text-[10px]">
-                  {exportNote}
+              {(saveNote || exportNote) && (
+                <p className="caption animate-rise" role="status">
+                  {saveNote ?? exportNote}
                 </p>
               )}
             </>
@@ -808,5 +1046,92 @@ export default function Home() {
         onSelection={onSelection}
       />
     </>
+  );
+}
+
+/**
+ * The empty wall. A statement of what this is, then real starting points —
+ * each chip runs a query that returns well, so the first click always lands
+ * on pictures. Sits in the same register as a museum's intro wall text.
+ */
+function EmptyWall({
+  onSearch,
+  onCategory,
+  onCurator,
+}: {
+  onSearch: (q: string) => void;
+  onCategory: (id: string) => void;
+  onCurator: () => void;
+}) {
+  const groups = ["Movements", "Subjects"] as const;
+  return (
+    <div className="animate-fade grid gap-10 py-6 md:grid-cols-[1.2fr_1fr] md:gap-16 md:py-12">
+      <div className="flex flex-col gap-6">
+        <p className="pretty max-w-[26ch] text-[28px] leading-[1.15] font-semibold tracking-[-0.01em] max-md:text-[22px]">
+          Public-domain paintings, sized for a hero, from five museums&rsquo; open
+          collections.
+        </p>
+        <p className="pretty max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
+          Search by keyword, or switch to Interpret and describe the mood you want
+          behind your UI. Every result is CC0 or public domain and downloads at full
+          resolution with attribution.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {STARTERS.map((s, i) => (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => (s.run === "search" ? onSearch(s.value) : onCategory(s.value))}
+              className="invert-hover animate-rise border border-ink px-3 py-1.5 text-[13px]"
+              style={{ ["--stagger" as string]: `${80 + i * 35}ms` }}
+            >
+              {s.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onCurator}
+            className="animate-rise border border-accent px-3 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent hover:text-paper"
+            style={{ ["--stagger" as string]: `${80 + STARTERS.length * 35}ms` }}
+          >
+            Ask the curator
+          </button>
+        </div>
+      </div>
+      <dl className="flex flex-col gap-4 border-t border-ink pt-4 md:border-t-0 md:border-l md:pt-0 md:pl-8">
+        {groups.map((g) => (
+          <div key={g}>
+            <dt className="caption mb-1.5">{g}</dt>
+            <dd className="flex flex-wrap gap-x-3 gap-y-1">
+              {CATEGORIES.filter((c) => c.group === g).map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onCategory(c.id)}
+                  className="press-none text-[13px] underline-offset-2 hover:underline"
+                >
+                  {c.label}
+                </button>
+              ))}
+            </dd>
+          </div>
+        ))}
+        <div>
+          <dt className="caption mb-1.5">Sources</dt>
+          <dd className="pretty text-[13px] text-muted-foreground">
+            {ALL_SOURCES.map(sourceLabel).join(" · ")}
+          </dd>
+        </div>
+        <div>
+          <dt className="caption mb-1.5">Keys</dt>
+          <dd className="text-[13px] text-muted-foreground">
+            <kbd className="font-mono text-[11px]">/</kbd> search ·{" "}
+            <kbd className="font-mono text-[11px]">←</kbd>{" "}
+            <kbd className="font-mono text-[11px]">→</kbd> step through works ·{" "}
+            <kbd className="font-mono text-[11px]">esc</kbd> close
+          </dd>
+        </div>
+      </dl>
+    </div>
   );
 }

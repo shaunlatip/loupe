@@ -7,22 +7,25 @@ const MODES = [
   {
     id: "keyword" as const,
     label: "Keyword",
-    hint: "Search titles & metadata as typed",
+    hint: "Titles, artists and metadata, as typed",
   },
   {
     id: "interpret" as const,
     label: "Interpret",
-    hint: "Turn a vibe into a real metadata query",
+    hint: "A mood, compiled into a real museum query",
   },
 ];
 
 export default function SearchBar({
   onSearch,
+  onClear,
   loading,
   interpret,
   onSetInterpret,
 }: {
   onSearch: (q: string) => void;
+  /** the field was emptied via the clear button — callers reset results */
+  onClear?: () => void;
   loading: boolean;
   interpret: boolean;
   onSetInterpret: (on: boolean) => void;
@@ -30,6 +33,7 @@ export default function SearchBar({
   const [value, setValue] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const modeWrap = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -48,10 +52,26 @@ export default function SearchBar({
     };
   }, [menuOpen]);
 
+  // "/" focuses the field from anywhere on the page (unless already typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+        return;
+      e.preventDefault();
+      input.current?.focus();
+      input.current?.select();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const activeMode = interpret ? "interpret" : "keyword";
 
   return (
     <form
+      role="search"
       className="flex w-full items-stretch border border-ink"
       onSubmit={(e) => {
         e.preventDefault();
@@ -66,30 +86,36 @@ export default function SearchBar({
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
+          aria-haspopup="menu"
           aria-label="Search mode"
-          className={`flex items-center gap-1.5 border-r border-ink px-4 text-[11px] tracking-[0.08em] ${
+          className={`press-none flex items-center gap-1.5 border-r border-ink px-4 text-[11px] tracking-[0.08em] ${
             interpret ? "bg-accent text-paper" : "invert-hover"
           }`}
         >
           {interpret ? "Interpret" : "Keyword"}
           <CaretDown
-            className={`h-3.5 w-3.5 shrink-0 transition-transform duration-120 ${
+            className={`h-3.5 w-3.5 shrink-0 transition-transform duration-150 ${
               menuOpen ? "rotate-180" : ""
             }`}
           />
         </button>
         {menuOpen && (
-          <div className="animate-pop absolute top-full left-0 z-30 mt-1 w-[248px] border border-ink bg-paper">
+          <div
+            role="menu"
+            className="animate-pop absolute top-full left-0 z-30 mt-1 w-[260px] border border-ink bg-paper"
+          >
             {MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
+                role="menuitemradio"
+                aria-checked={activeMode === m.id}
                 onClick={() => {
                   onSetInterpret(m.id === "interpret");
                   setMenuOpen(false);
+                  input.current?.focus();
                 }}
-                aria-pressed={activeMode === m.id}
-                className="invert-hover group/mode flex w-full items-start gap-2 px-3 py-2 text-left"
+                className="invert-hover press-none group/mode flex w-full items-start gap-2 px-3 py-2 text-left focus-visible:outline-offset-[-2px]"
               >
                 <span
                   aria-hidden
@@ -109,20 +135,42 @@ export default function SearchBar({
         )}
       </div>
 
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={
-          interpret
-            ? "Describe a vibe — try “misty atmospheric morning”"
-            : "Search open-access art — try “monet mist” or “nocturne”"
-        }
-        className="w-full bg-paper px-4 py-3 text-[14px] outline-none placeholder:text-muted-foreground focus:bg-wash"
-      />
+      <div className="relative flex min-w-0 flex-1">
+        <input
+          ref={input}
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          enterKeyHint="search"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={interpret ? "Describe a mood" : "Search"}
+          placeholder={
+            interpret
+              ? "Describe a mood. “misty morning”, “dark ground for white text”"
+              : "Search titles, artists, keywords. “nocturne”, “monet mist”"
+          }
+          className="w-full bg-paper py-3 pr-10 pl-4 text-[14px] outline-none placeholder:text-muted-foreground focus:bg-wash"
+        />
+        {value && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => {
+              setValue("");
+              onClear?.();
+              input.current?.focus();
+            }}
+            className="animate-fade absolute inset-y-0 right-0 flex w-10 items-center justify-center text-[16px] leading-none text-muted-foreground hover:text-ink"
+          >
+            ×
+          </button>
+        )}
+      </div>
       <button
         type="submit"
         disabled={loading}
+        aria-busy={loading}
         className="invert-hover shrink-0 border-l border-ink px-6 text-[13px] font-semibold disabled:opacity-40"
       >
         {loading ? "Searching…" : "Search"}

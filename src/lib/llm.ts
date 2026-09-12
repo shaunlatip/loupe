@@ -53,7 +53,7 @@ export function llmConfigured(): boolean {
 
 export class LlmNotConfigured extends Error {
   constructor() {
-    super("The curator isn't configured on this deployment — set OPENROUTER_API_KEY.");
+    super("The curator isn't set up on this deployment. It needs OPENROUTER_API_KEY.");
   }
 }
 
@@ -82,13 +82,13 @@ export function describeLlmError(err: unknown): string {
   if (err instanceof LlmNotConfigured) return err.message;
   if (err instanceof OpenAI.APIError) {
     if (err.status === 429) {
-      return "The curator's free model quota is used up right now — try again in a minute, or tomorrow if the daily cap was hit.";
+      return "The model is rate-limited right now. Try again in a minute, or tomorrow if the daily cap was hit.";
     }
     if (err.status === 401 || err.status === 403) {
-      return "The LLM key was rejected — check OPENROUTER_API_KEY.";
+      return "The model provider rejected the key. Check OPENROUTER_API_KEY.";
     }
     if (err.status === 404) {
-      return "No model endpoint matched — check the model name, and on OpenRouter enable providers that may train on inputs (free models require it).";
+      return "No model endpoint matched. Check the model name; on OpenRouter, free models need providers that may train on inputs enabled.";
     }
     return `LLM error ${err.status ?? ""}: ${err.message}`.replace("  ", " ");
   }
