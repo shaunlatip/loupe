@@ -202,7 +202,7 @@ export default function FilterRow({
         type="button"
         onClick={onHeroToggle}
         aria-pressed={heroOnly}
-        title="Landscape aspect ≥1.4 and width ≥2000px"
+        title="Only works at least 2000px wide with a landscape aspect of 1.4 or more"
         className={`border border-ink px-3 py-1 text-[12px] ${
           heroOnly ? "bg-accent text-paper" : "invert-hover"
         }`}
@@ -263,6 +263,9 @@ export default function FilterRow({
         value={artist}
         onChange={(e) => onArtist(e.target.value)}
         placeholder="Artist"
+        aria-label="Restrict to an artist"
+        title="Applies to the next keyword search"
+        autoComplete="off"
         className="border border-ink bg-paper px-2 py-1 text-[12px] text-ink outline-none max-md:w-28 placeholder:text-muted-foreground focus:bg-wash"
       />
 

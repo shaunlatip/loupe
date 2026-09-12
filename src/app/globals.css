@@ -86,9 +86,11 @@ body {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+/* Text fields already switch to the wash on focus; a ring on top reads as
+ * an error box. */
 input:focus-visible,
 textarea:focus-visible {
-  outline-offset: -2px;
+  outline: none;
 }
 
 /* Every pressable element answers the press: a small scale, 120ms, so the
