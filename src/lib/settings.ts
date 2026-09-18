@@ -9,7 +9,7 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DATA_DIR, "settings.json");
 
 export const DEFAULT_SETTINGS: Settings = {
-  exportDir: "/Users/shaunlatip/Downloads/loupe-exports",
+  exportDir: "/Users/shaunlatip/Downloads/curio-exports",
 };
 
 export async function getSettings(): Promise<Settings> {

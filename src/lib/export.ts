@@ -57,7 +57,7 @@ async function downloadArtwork(
       headers: {
         // Some IIIF servers (AIC) 403 requests without a browser-ish UA.
         "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curio/1.0",
         accept: "image/*,*/*;q=0.8",
       },
     });

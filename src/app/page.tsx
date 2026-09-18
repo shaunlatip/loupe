@@ -215,7 +215,7 @@ export default function Home() {
           <div className="flex items-end justify-between gap-4">
             {/* display — wordmark is intentionally lowercase */}
             <h1 className="text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[44px]">
-              loupe
+              curio
             </h1>
             <div className="flex items-center gap-3">
               <p className="caption hidden lg:block">

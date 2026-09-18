@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "loupe",
+  title: "curio",
   description: "Open-access museum art for design backdrops",
 };
 

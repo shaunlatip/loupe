@@ -1,13 +1,13 @@
-# Loupe — agent handoff
+# Curio — agent handoff
 
-**Loupe** is a small local tool for a product designer (Shaun Latip) to **search, browse, save, and export open-access (CC0 / public-domain) museum art** for use as design backdrops behind portfolio case studies — the Shopify-Editions / Notion-Mail-hero pattern (an atmospheric painting as a full-bleed ground with crisp UI floating on top). It is deliberately small: **one page, one grid, one panel, one bar.** Density is the enemy — see § Non-goals before adding anything.
+**Curio** is a small local tool for a product designer (Shaun Latip) to **search, browse, save, and export open-access (CC0 / public-domain) museum art** for use as design backdrops behind portfolio case studies — the Shopify-Editions / Notion-Mail-hero pattern (an atmospheric painting as a full-bleed ground with crisp UI floating on top). It is deliberately small: **one page, one grid, one panel, one bar.** Density is the enemy — see § Non-goals before adding anything.
 
-Sibling project: **shader-lab** (`~/Documents/Projects/shader-lab`) *generates/edits* textures; Loupe *finds real art*. Don't add image editing here — that's shader-lab's job. Loupe export is bytes-in-bytes-out.
+Sibling project: **shader-lab** (`~/Documents/Projects/shader-lab`) *generates/edits* textures; Curio *finds real art*. Don't add image editing here — that's shader-lab's job. Curio export is bytes-in-bytes-out.
 
 ## Run it
 
 ```
-cd ~/Documents/Projects/loupe
+cd ~/Documents/Projects/loupe-v1
 npm run dev      # → http://localhost:4050 (port pinned in package.json)
 npx tsc --noEmit # typecheck
 ```
@@ -49,7 +49,7 @@ Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }`
 
 ### Collections & export (`src/lib/collections.ts`, `export.ts` + routes)
 
-JSON-on-disk in gitignored `data/` (`collections.json` stores **full Artwork records**; `settings.json` holds `exportDir`, default `~/Downloads/loupe-exports`). `POST /api/export {artworks?|collectionId?, destDir?}` downloads `imageHires` + a per-work sidecar JSON + a batch `ATTRIBUTION.md`. ⚠ AIC's IIIF server 403s bare Node fetch → `export.ts` sends a browser User-Agent.
+JSON-on-disk in gitignored `data/` (`collections.json` stores **full Artwork records**; `settings.json` holds `exportDir`, default `~/Downloads/curio-exports`). `POST /api/export {artworks?|collectionId?, destDir?}` downloads `imageHires` + a per-work sidecar JSON + a batch `ATTRIBUTION.md`. ⚠ AIC's IIIF server 403s bare Node fetch → `export.ts` sends a browser User-Agent.
 
 ## File map
 
