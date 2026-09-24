@@ -35,6 +35,9 @@ Principles for every decision below:
 | D8 | Sort moves from the filter row into the wall label row | Yes |
 | D9 | Filter button style (comment: "intermediate, not outlined, not black") | Wash fill, no border, ink text; active = ink fill |
 | D10 | Permissions for an unattended run | Shaun runs the installs in §2 before leaving and keeps the session in bypass mode. `npm install` and `npx` prompt otherwise and would stall the run |
+| D11 | Second colour tier (§8): wall colours derived from each set, as flat fields only | Yes: wall label band and detail surround; homepage example cards on hover only |
+| D12 | "On the curator's table" band on the wall during a turn (§7.3) | Yes |
+| D13 | Where the working status shows while the thread is closed (§7.1) | The Curator control becomes a status pill, plus the tab title |
 
 ---
 
@@ -62,55 +65,122 @@ The core change. Today the curator hides behind a header button and a drawer, an
 
 ### Empty state, desktop (≥1024)
 
+Keep the screen focused: one headline, one input, one set of examples. Keep what already works on today's page:
+- the "Public-domain paintings…" headline;
+- the "Every result is CC0…" line;
+- blue on the one primary action only;
+- Movements and Subjects as secondary suggestions;
+- the cited sources;
+- the links to Shaun's site and GitHub.
+
+Drop the Keys section and any "how it works" line.
+
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│ curio                                   A curator for five museums │
-│                                                                    │
-│   A curator for five museums' open collections.                    │
-│   Ask for an artist, a mood, or something stranger. Curio          │
-│   searches, looks at every candidate, and hangs a set.             │
-│                                                                    │
-│   ┌──────────────────────────────────────────────────────────┐     │
-│   │ Hokusai, fog over water, cats with opinions…             │     │
-│   │                                                  [ Ask ] │     │
-│   └──────────────────────────────────────────────────────────┘     │
-│                                                                    │
-│   ┌────────────┐ ┌────────────┐ ┌────────────┐                     │
-│   │ ▢ ▢ ▢      │ │ ▢ ▢ ▢      │ │ ▢ ▢ ▢      │   example cards:    │
-│   │ Cats with  │ │ The most   │ │ Tiny people│   3-thumb preview   │
-│   │ opinions   │ │ dramatic   │ │ huge lands │   from the recorded │
-│   └────────────┘ └────────────┘ └────────────┘   run, label below  │
-│   ┌────────────┐ ┌────────────┐ ┌────────────┐                     │
-│   │ …          │ │ …          │ │ …          │                     │
-│   └────────────┘ └────────────┘ └────────────┘                     │
-│                                                                    │
-│   Ask → it searches → looks at every candidate → hangs a set →     │
-│   you refine                                                       │
-│                                                                    │
-│   Browse  Impressionism · Dutch Golden Age · Ukiyo-e · Seascape …  │
-└────────────────────────────────────────────────────────────────────┘
+ 1    2    3    4    5    6    7    8    9  │ 10   11   12      ← 12-col grid, 24px gutters
+┌──────────────────────────────────────────┼─────────────────────────┐
+│ curio                                    │ Open-access museum art  │
+│                                          │ · by Shaun Latip ·      │
+│                                          │ GitHub       [Curator]  │
+│══════════════════════════════════════════╪═════════════════════════│
+│                                          │                         │
+│ Public-domain paintings from five        │ Sources                 │
+│ museums' open collections.   (1–7)       │ Art Institute of        │
+│                                          │   Chicago               │
+│ Ask for an artist, a mood, or something  │ Cleveland Museum of Art │
+│ stranger. Every result is CC0 or public  │ The Met                 │
+│ domain and downloads at full resolution  │ Statens Museum for      │
+│ with attribution.            (1–6)       │   Kunst                 │
+│                                          │ Minneapolis Institute   │
+│ ┌──────────────────────────────────────┐ │   of Art                │
+│ │ Hokusai, fog over water, cats with   │ │                         │
+│ │ opinions…                  [■ Ask ■] │ │ Every work is CC0 or    │
+│ └──────────────────────────────────────┘ │ public domain.          │
+│   (1–9; Ask is the only accent fill)     │                         │
+│                                          │                         │
+│ Try                                      │                         │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐   │                         │
+│ │ ▢ ▢ ▢    │ │ ▢ ▢ ▢    │ │ ▢ ▢ ▢    │   │                         │
+│ │ Cats with│ │ The most │ │ Tiny     │   │                         │
+│ │ opinions │ │ dramatic │ │ people,  │   │                         │
+│ └──────────┘ └──────────┘ └──────────┘   │                         │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐   │                         │
+│ │ …        │ │ …        │ │ …        │   │                         │
+│ └──────────┘ └──────────┘ └──────────┘   │                         │
+│   (3 cols each; 1px ink border, invert on hover)                   │
+│                                          │                         │
+│ Or browse                                │                         │
+│ Movements  [Impressionism] [Post-impressionism] [Dutch Golden Age] │
+│            [Baroque] [Romanticism] [Realism] [Ukiyo-e]             │
+│ Subjects   [Landscape] [Seascape] [Still life] [Portrait] [Night]  │
+│   (light chips: the D9 filter style, wash fill; tertiary weight)   │
+└──────────────────────────────────────────┴─────────────────────────┘
 ```
+
+**Hierarchy by weight:**
+1. The Ask button is the only accent fill on the screen. It replaces the standalone "Ask the curator" button added in `8cb6ecc`.
+2. Example cards: ink border.
+3. Browse tags: wash chips.
+4. Sources: caption text.
+
+**Grid (the existing Swiss structure, made explicit).**
+- Container: `max-w-[1440px] px-6`, as today.
+- At 1024 and above, a 12-column CSS grid with 24px gutters, defined once as a utility (`.grid-12`) and used by the header, the empty state, the wall label and the toolbar, so their left edges line up.
+- Content block: columns 1–9. The rule and sources rail: columns 10–12, with the 1px ink rule on the rail's left edge (as today's `md:border-l`).
+- The header uses the same split: the wordmark over columns 1–9, then tagline, links and Curator over 10–12. The rule under the header runs the full width.
+- Below 1024: one column. The rail moves under the browse tags as a caption paragraph. The example cards become a horizontal scroll row (snap, 260px cards).
+- **Acceptance:** at 1440, the left edges of the wordmark, headline, composer, first card and "Or browse" line up to the pixel. Check computed `x` in `/browse`.
+
+**Copy:**
+- Tagline (header, rail column): "Open-access museum art, curated by an agent". It replaces "for design backdrops" (comment #3).
+- The "by Shaun Latip · GitHub" links stay exactly as they are.
 
 ### After the first send, desktop (≥1280)
 
+While the curator works (thread open):
+
 ```
-┌──────────────────────────────────────────────┬─────────────────────┐
-│ curio                                        │ Thread          ⟲ × │
-│ [Filters ▾] [Sources · 5 ▾] [Color ▾]        │                     │
-│──────────────────────────────────────────────│  you: cats with …   │
-│ Cats with opinions                           │  ▸ Worked for 31s   │
-│ "I went looking for cats that…"              │    4 searches · 16  │
-│ [12 works] [4 museums]            Sort ▾     │    looked at        │
-│──────────────────────────────────────────────│  ▢▢▢▢▢▢▢▢ +4        │
-│ ▢ ▢ ▢ ▢                                      │  "I went looking…"  │
-│ ▢ ▢ ▢ ▢           (the wall)                 │  [warmer] [no dogs] │
-│ ▢ ▢ ▢ ▢                                      │         (↓)         │
-│                                              │ ┌─────────────────┐ │
-│                                              │ │ ▢ attached work │ │
-│                                              │ │ Refine…   [Ask] │ │
-│                                              │ └─────────────────┘ │
-└──────────────────────────────────────────────┴─────────────────────┘
+┌──────────────────────────────────────────────╫─────────────────────┐
+│ curio                                        ║ Curator  Sonnet · local ⟲ × │
+│ [Filters ▾] [Sources · 5 ▾] [Color ▾]        ║ ◇ Looking at 8 works   0:14 │  ← status line (§7.1)
+│──────────────────────────────────────────────║─────────────────────│
+│ On the curator's table                  0:14 ║  you: cats with …   │
+│ ▢  ▢  ▣  ▢  ▢  ▢  ▢  ▢   ← the 8 it is       ║  ▾ Working          │
+│                            looking at now    ║    ⌕ Searched “cat” │
+│                            (§7.3)            ║      [1700–1900]    │
+│──────────────────────────────────────────────║      [86 works] ▫▫▫ │
+│ (previous wall, dimmed)                      ║    ◇ Looking at 8   │
+│ ▢ ▢ ▢ ▢                                      ║      ▢▢▣▢▢▢▢▢       │
+│ ▢ ▢ ▢ ▢                                      ║                 (◇) │  ← jump button, Morph
+│                                              ║ ┌─────────────────┐ │
+│                                              ║ │ Refine…   [Stop]│ │
+│                                              ║ └─────────────────┘ │
+└──────────────────────────────────────────────╨─────────────────────┘
+                                               ↑ drag handle (§7.4)
 ```
+
+After the set is hung:
+
+```
+┌──────────────────────────────────────────────╫─────────────────────┐
+│ curio                                        ║ Curator ✓ Hung 12 works · 38s │
+│ [Filters ▾] [Sources · 5 ▾] [Color ▾]        ║─────────────────────│
+│──────────────────────────────────────────────║  ▸ Worked for 38s   │
+│ Cats with opinions                           ║    [4 searches]     │
+│ "I went looking for cats that…"              ║    [16 looked at]   │
+│ [12 works] [4 museums]            Sort ▾     ║    [12 kept]        │
+│──────────────────────────────────────────────║  ▢▢▢▢▢▢▢▢ +4        │
+│ ▢ ▢ ▢ ▢                                      ║  "I went looking…"  │
+│ ▢ ▢ ▢ ▢           (the wall)                 ║  [warmer] [no dogs] │
+│                                              ║ ┌─────────────────┐ │
+│                                              ║ │ ▢ attached work │ │
+│                                              ║ │ Refine…   [Ask] │ │
+│                                              ║ └─────────────────┘ │
+└──────────────────────────────────────────────╨─────────────────────┘
+```
+
+With the thread collapsed, the Curator control in the header carries the same status (§7.1):
+- working: `[◇ Looking at 8 works · 0:14]`
+- finished while you weren't watching: `[■ 12 works hung · Open]`
 
 - The top search bar goes away. Its job moves into the composer plus the router (§4).
 - A lookup ("Hokusai") still fills the wall instantly with no LLM call, and adds one compact thread line: `Searched “Hokusai” · 128 works`.
@@ -122,16 +192,10 @@ The core change. Today the curator hides behind a header button and a drawer, an
 
 The wall is the main view. The thread is a full-height sheet opened from a sticky composer bar at the bottom. The example cards scroll horizontally in the empty state.
 
-### Copy (comments ask to drop "for design backdrops")
+### Copy
 
-- **Tagline options:**
-  - "A curator for five museums' open collections" (default)
-  - "Agent-first search across open-access museums"
-  - "Ask five museums for anything"
-- **Headline options:**
-  - the tagline itself (default)
-  - "Describe a feeling. Get a wall."
-  - "Ask the collections anything."
+- **Headline:** keep "Public-domain paintings from five museums' open collections."
+- **Body:** "Ask for an artist, a mood, or something stranger. Every result is CC0 or public domain and downloads at full resolution with attribution." The first sentence replaces the Keyword/Interpret instructions.
 - **Placeholder:** "Hokusai, fog over water, cats with opinions…" (comment: make it broader and invite interpretive queries).
 
 ### Build order
@@ -304,7 +368,7 @@ AI Elements (elements.ai-sdk.dev) is shadcn-style copy-in code: shadcn tokens, r
 |---|---|---|---|---|
 | Scrolling | `scrollIntoView` on every turn change | Conversation: `use-stick-to-bottom` and a scroll button | Pulls readers down while they read earlier turns | Use `use-stick-to-bottom`; our own button (below) |
 | Work in progress | Flat rows, each with a dot | Chain of Thought: steps with complete/active/pending status, result badges and images; Task | Two strings glued together ("Looking at 8 works · looked at 8"), repeated identical rows, misaligned dot (comment), dots everywhere (comment), no grouping | New step vocabulary (below) |
-| Waiting line | "Working 0:12" at the bottom | Reasoning: "Thinking…" becomes "Thought for N seconds", opens while running and collapses when done | Detached from the work it describes | Group header "Working · 0:12" becomes "Worked for 38s" |
+| Waiting line | "Working 0:12" pulses at the bottom, even while a step is also animating | Reasoning: "Thinking…" becomes "Thought for N seconds", opens while running and collapses when done | Two animated lines at once; detached from the work it describes | One live indicator with phase phrases (§7.2); timer in the status line (§7.1); "Worked for 38s" when done |
 | Prose | Regex for `*` and `**`; each text block starts a new turn | Message plus Streamdown (streaming markdown, tolerates half-finished markdown) | Lists and links render as raw text; text arrives in lumps | `smoothStream` and a small markdown subset (Streamdown restyled if it stays lightweight) |
 | Composer | Textarea, chip row outside it, fixed 2 rows, text "Send" | PromptInput: attachments in a header *inside* the box, auto-sizing textarea, one submit button whose icon shows the status | Chips outside the box (comment) | Copy the structure: header (attachments), textarea 2–8 rows, footer (submit/stop icon) |
 | Attachments | Horizontal chips, truncated titles, no preview | Attachments, inline variant, with a hover preview card | Can't see what's attached; wide chips overflow | Stacked vertically inside the box (comment), 32px thumb plus title and artist, 160px hover preview, Backspace in an empty box removes the last one |
@@ -323,8 +387,8 @@ AI Elements (elements.ai-sdk.dev) is shadcn-style copy-in code: shadcn tokens, r
 ### Step vocabulary
 
 - **A turn's work is one group.**
-  - Running: header "Working" (shimmer) plus an elapsed timer, group expanded.
-  - Done: collapses to "Worked for 38s" with quiet chips `[4 searches] [16 looked at] [12 hung]`.
+  - Running: a static "Working" header, group expanded. No shimmer and no timer here: the one animated line is the running step or the thinking line (§7.2), and the timer lives in the status line (§7.1).
+  - Done: collapses to "Worked for 38s" with quiet chips `[4 searches] [16 looked at] [12 kept]`.
   - Errors force the group open.
 - **Anatomy of a step:** `[12px glyph] [label] [meta chips]`.
   - The glyph box is exactly one line high and centred, which fixes the optical-centring comment.
@@ -368,6 +432,105 @@ AI Elements (elements.ai-sdk.dev) is shadcn-style copy-in code: shadcn tokens, r
 - **Reduced motion:** a static icon.
 - **Click:** smooth scroll to the bottom and re-attach to it.
 
+### 7.1 One status, shown in three places
+
+A single hook, `useCuratorStatus(messages, chatStatus)`, derives what the agent is doing from the stream: the running `data-step` parts, whether text is streaming, and the chat status. Every surface reads from it, so they can never disagree.
+
+```ts
+type CuratorStatus =
+  | { phase: "idle" }
+  | { phase: "thinking" | "searching" | "looking" | "hanging";
+      label: string;          // "Looking at 8 works", or the current phrase (§7.2)
+      turnStartedAt: number;  // drives the elapsed timer
+      counts: { searches: number; lookedAt: number } }
+  | { phase: "done"; summary: string; seconds: number; unseen: boolean }  // "Hung 12 works"
+  | { phase: "error"; label: string }
+  | { phase: "stopped" };
+```
+
+**1. Status line under the thread header.**
+- Shows the phase glyph or spinner, the label, and the elapsed time (mono, right-aligned).
+- Done: "✓ Hung 12 works · 38s". Error: destructive text. Idle: hidden, so the header stays one line.
+- The elapsed timer lives here and nowhere else.
+
+**2. Collapsed state.** The Curator control in the header becomes a status pill when the thread is closed or scrolled out of view on mobile:
+
+| Phase | Pill | Behaviour |
+|---|---|---|
+| Working | `[spinner] Looking at 8 works · 0:14` | Same spinner mapping as the floating button |
+| Done, unseen | `[■] 12 works hung · Open` | The square is accent; the pill pulses once (opacity, 600ms) |
+| Error | `[□] Turn failed · Open` | Destructive outline |
+| Idle | "Curator" | As today |
+
+- Clicking the pill opens the thread scrolled to the latest turn.
+- **Background tabs:** while a turn runs, `document.title` becomes "Looking at 8 works · Curio"; when it finishes unseen, "✓ 12 works hung · Curio". Restore it on focus.
+
+**3. Floating jump button:** the same phase mapping as specified above.
+
+### 7.2 One live indicator at a time, and better loading phrases
+
+Today "Working" pulses at the bottom while "Looking at 8 works" also animates (screenshot). **Rule: the transcript never shows more than one animated line.**
+
+| Condition | The one live indicator |
+|---|---|
+| A step is running | That step's label and spinner glyph |
+| Text is streaming | The text itself; no extra line |
+| Neither (the model is thinking before its first output or between steps) | A single thinking line, with phrases chosen by phase |
+
+**Thinking phrases** rotate every 2.4s with a 150ms crossfade, fill in real numbers, and are chosen by what just happened:
+
+| After | Phrases |
+|---|---|
+| Nothing yet | Reading your brief · Deciding where to look · Picking search terms |
+| Searches | Sorting through 146 results · Choosing what to look at · Pulling the promising ones |
+| Looking | Comparing what I saw · Deciding what makes the cut · Weighing 16 candidates |
+| Several looks | Arranging the wall · Writing the wall label |
+| Same set for more than 20s | Still looking, this collection is deep · Taking a second pass |
+
+- Copy rules: sentence case, no ellipses, no em dashes.
+- Reduced motion: no rotation; show the first phrase for the phase.
+
+### 7.3 Seeing what the curator sees
+
+The wait should be something to watch. Show the raw material the agent works with, kept small and curated, and let people act on it.
+
+1. **Search steps show what came back.** A 5-thumbnail micro strip (20px) of the top results sits beside the count chip. It's dimmed, since the agent hasn't looked at them yet. Hovering shows the title.
+2. **Look steps are the main view.**
+   - The 8 works appear one by one as the executor fetches each thumbnail (per-item `data-step` updates: `items: [{ id, title, artist, thumb, state: "loading" | "seen" | "failed" }]`), at 40px.
+   - While the model is judging, a 1px accent outline steps slowly from thumbnail to thumbnail (400ms each). This says "looking" without claiming which one it's on.
+   - It belongs to the same live indicator as the thinking line ("Comparing what I saw"). It runs only while that phrase set is showing, so the one-indicator rule in §7.2 holds.
+3. **Show which works made it.** When `present_selection` lands, every look strip in the turn updates: kept works get full opacity and a small accent square in the corner; passed works dim to 40% with a "Passed over" tooltip.
+   - The done summary gains `[12 kept]`.
+   - People see the agent's choices ("16 looked at, 12 made it") at no extra model cost.
+4. **Short curator's asides.** The prompt (§12) asks for one short aside after each look, such as "The Redon balloon is the one; the Ensor is too busy." It streams as prose between steps, which gives the agent a voice while it works.
+5. **The brief.** The prompt asks the curator to open each turn with one sentence naming what it's looking for ("Looking for smug cats, prints and paintings, any period"). It renders as the first line inside the Working group.
+6. **"On the curator's table" on the wall.** During a turn, a band above the wall shows the works from the latest look step at 120px, with the same kept/passed reveal. Then it collapses as the new set is hung.
+   - This keeps the process visible even with the thread closed.
+   - Clicking a work opens the detail view.
+   - The previous wall stays below, dimmed, until the new set lands.
+
+**Data needed:**
+- `search_artworks` emits its top-5 preview items.
+- `view_artworks` emits an update per item as each thumbnail resolves.
+- `present_selection` emits the kept ids; the client works out kept and passed.
+- Thumbnails load in the browser straight from museum image servers (`referrerPolicy="no-referrer"`, as the wall already does), so there's no server cost.
+
+### 7.4 Drag to resize the thread
+
+- **Handle:** the 1px ink rule on the thread's left edge, with an 8px invisible hit area and `cursor: col-resize`. On hover or drag the rule turns accent, the one active-state use of blue here.
+- **Width:**
+  - minimum 320px; maximum `min(720px, 60vw)`; default 420px;
+  - double-click resets to the default;
+  - persisted in `localStorage` as `curio.threadWidth`.
+- **Live reflow:**
+  - The wall's right margin reads `var(--thread-w)`.
+  - During the drag, disable the margin transition, capture the pointer, throttle updates with `requestAnimationFrame`, and set `user-select: none` on the body.
+  - The masonry column count must follow the *container* width: check that `ResultGrid` measures its container (ResizeObserver) and not the window.
+- **Keyboard:**
+  - The handle is `role="separator"` with `aria-orientation="vertical"`, `aria-valuemin`, `aria-valuemax` and `aria-valuenow`, and is focusable.
+  - ←/→ step 16px, Shift steps 64px, Home and End jump to min and max.
+- **Where:** in the docked (≥1280) and overlay (768–1279) modes only; not on mobile.
+
 ---
 
 ## 8. Workstream F: The wall
@@ -394,7 +557,45 @@ AI Elements (elements.ai-sdk.dev) is shadcn-style copy-in code: shadcn tokens, r
 - Rename the post-search "Movement" dropdown to "In these results" so it stops clashing with "Movements".
 - New intermediate filter style (D9).
 
+### Colour: a second tier that comes from the art (D11)
+
+**What MFA Boston does** (mfa.org, computed styles, 2026-09-24):
+- Black text and 1px black rules on white, zero radius.
+- One filled call to action: "Get Tickets", bright yellow `#FFFF5A` with a black border. Everything else is outlined.
+- Colour appears as **large flat fields behind black text, one per section, never as text or control colour**:
+  - a mint `#4BFFC3` full-bleed feature block;
+  - a yellow `#EBBE19` title band laid over the hero image;
+  - a sky-blue `#7AD1EF` ticker;
+  - a neutral grey `#EDEEEE` utility bar and footer.
+- The images carry the rest of the colour.
+
+**What Curio borrows:** the discipline, not the hues.
+
+- Blue `#2400ff` stays the only colour that means **"you can act"** (primary button, active and focus states) and **"the curator"** (status, the note rule).
+- The second tier is **derived from the works themselves**, the way a museum paints an exhibition wall to suit the show.
+
+**Derived wall colour:**
+- Take the median hue of the set's dominant colours. AIC, SMK and Harvard provide them; for the others, sample it from the thumbnail with the calm-score pass.
+- Map it into a narrow OKLCH band: L 0.93–0.95, C ≤ 0.035, the set's hue.
+- Black text on it stays above 12:1 contrast. Verify with a contrast check in the run.
+- No usable colour data → fall back to the existing wash `#f2f2f2`.
+
+**Where it appears, and only there:**
+1. **The wall label band** when a curator set is hung: a full-width flat field behind the heading, note and chips, like MFA's title band.
+2. **The detail view's image surround** (today `bg-wash`): the work's own dominant colour in the same band, like the wall behind a painting.
+3. **Example cards on the homepage, on hover only:** the card's label area fills with its recorded set's wall colour. At rest the cards stay ink on paper, so the empty state stays calm.
+
+**Limits:**
+- At most one derived field in any region of the screen.
+- Never on text, borders or controls.
+- Transitions: background colour only, 200ms.
+- Reduced motion: no transition.
+
+**Rejected:** a fixed secondary brand colour (a yellow or mint of our own). It would compete with the blue and with the paintings.
+
 ### Scroll to top (comment)
+
+MFA uses the same pattern: a square black-bordered button with an up arrow, fixed at the bottom right.
 
 - A square 36px button with an up arrow.
 - Appears once the wall is scrolled past 1.5 viewports; hides near the top.
@@ -510,6 +711,9 @@ Today: a blurred thumbnail with the caption "loading full size…". Replace it w
 - **Rewrite `src/lib/agent/prompt.ts` to be art-first.** Today it says "judge as backdrops, not as artworks" and "reject portraits on sight", and every note explains "why it suits a UI backdrop". Apply those criteria only when the brief mentions layout, text, a hero image or a background.
 - **Note voice: first person and specific, like a docent.** For example: "I went looking for skies that overdo it. These twelve share a low horizon and a lot of weather. Start with the Turner."
 - **`present_selection` gains `followUps: string[]`:** 2–3 short refinements, shown as suggestion chips.
+- **Open each turn with the brief:** one sentence naming what the curator is looking for. It renders as the first line of the Working group (§7.3).
+- **After each `view_artworks`:** one short aside on what caught its eye or what it's passing over. Keep it to a clause.
+- **The selection note** says what the kept works share, and is honest about what it passed over.
 - **Copy:** meta description, OG text and tagline, per §3.
 
 ---
@@ -551,11 +755,17 @@ The full JSON is at `http://localhost:4747/pending` while that server runs. Reso
   - Pre-flight (§2).
   - Responsive toolbar and Sort move (G).
   - Quick comment fixes: F items and I items.
-  - Thread UI: steps, stick-to-bottom, floating button, composer and attachments (E).
+  - Thread UI: step vocabulary, stick-to-bottom, floating button, composer and attachments (E).
+  - One status in three places (§7.1).
+  - One live indicator with phase phrases (§7.2).
+  - Seeing what the curator sees, items 1–3 (§7.3).
   - Rules router and one input (B), inside the current layout if A slips.
   - AI SDK spike and migration, or the hosted-only fallback (C).
 - **P1**
-  - Thread-first layout and homepage (A).
+  - Thread-first layout and the new empty state on the 12-column grid (A).
+  - Drag to resize the thread (§7.4).
+  - Seeing what the curator sees, items 4–6: asides, brief line, the table band (§7.3; needs J).
+  - Derived wall colour (§8, D11).
   - Examples with recorded runs (H; needs C).
   - Preset caching (H).
   - Detail loading and neighbour preload (I).
@@ -601,4 +811,4 @@ The full JSON is at `http://localhost:4747/pending` while that server runs. Reso
 - What's done and verified, with before/after screenshots.
 - Decisions taken on defaults.
 - What's blocked, and why.
-- **Needs your eyes:** spinner and focus-pull feel, the layout transition, filter style, headline copy, the quality of the example sets.
+- **Needs your eyes:** spinner and focus-pull feel, the layout transition, filter style, headline copy, the quality of the example sets, the phrase rotation, the resize feel, and whether the derived wall colours read as calm.
