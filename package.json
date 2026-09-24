@@ -9,10 +9,14 @@
     "start": "next start"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.259",
+    "@ai-sdk/react": "^4.0.116",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.278",
     "@shadcn/react": "^0.2.1",
+    "ai": "^7.0.113",
+    "ai-sdk-provider-claude-code": "^4.3.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "loading-dev": "^0.3.4",
     "lucide-react": "^1.25.0",
     "next": "16.2.10",
     "openai": "^7.9.0",
@@ -20,6 +24,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0",
+    "use-stick-to-bottom": "^1.1.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {
