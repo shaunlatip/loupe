@@ -20,6 +20,10 @@ const COMMENT_GAP = 12;
 
 type CommentSide = "right" | "left" | "top" | "bottom";
 
+/** One comment open on the wall at a time: opening one closes the last
+ *  (a keyboard-focused card and a hovered one would otherwise both show). */
+let closeOpenComment: (() => void) | null = null;
+
 /**
  * Where a comment goes: beside the picture where the wall has room for it
  * (right first, the way a label reads), else above it, or below it when the
@@ -92,24 +96,33 @@ export default function ArtworkCard({
   const frameRef = useRef<HTMLSpanElement>(null);
   const [commentAt, setCommentAt] = useState<{ side: CommentSide; offset: number } | null>(null);
   const commentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // stable across renders (it only touches a ref and a state setter), so the
+  // wall-wide "which one is open" check can compare it
+  const closer = useRef<(() => void) | null>(null);
+  closer.current ??= () => {
+    if (commentTimer.current) clearTimeout(commentTimer.current);
+    commentTimer.current = null;
+    setCommentAt(null);
+    if (closeOpenComment === closer.current) closeOpenComment = null;
+  };
+  const closeComment = closer.current;
   const openComment = () => {
+    commentTimer.current = null;
     const frame = frameRef.current;
     const bounds = frame?.closest("section")?.getBoundingClientRect();
     if (!comment || !frame || !bounds) return;
+    if (closeOpenComment !== closeComment) closeOpenComment?.();
+    closeOpenComment = closeComment;
     setCommentAt(placeComment(frame.getBoundingClientRect(), bounds));
   };
   const openCommentSoon = () => {
     if (!comment || commentTimer.current) return;
     commentTimer.current = setTimeout(openComment, COMMENT_INTENT_MS);
   };
-  const closeComment = () => {
-    if (commentTimer.current) clearTimeout(commentTimer.current);
-    commentTimer.current = null;
-    setCommentAt(null);
-  };
   useEffect(
     () => () => {
       if (commentTimer.current) clearTimeout(commentTimer.current);
+      if (closeOpenComment === closer.current) closeOpenComment = null;
     },
     [],
   );
@@ -179,9 +192,11 @@ export default function ArtworkCard({
         onPointerEnter={warmSoon}
         onPointerLeave={cancelWarm}
         onPointerDown={warmHires}
-        onFocus={() => {
+        onFocus={(e) => {
           warmHires();
-          openComment();
+          // keyboard focus only: focus handed back after the detail view
+          // closes shouldn't pop the comment up under the pointer
+          if (e.currentTarget.matches(":focus-visible")) openComment();
         }}
         onBlur={closeComment}
         aria-label={`${artwork.title}, ${artwork.artist}`}
