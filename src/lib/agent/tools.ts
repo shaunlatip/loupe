@@ -66,7 +66,7 @@ export const VIEW_LIMIT = 8;
 /** guard against an oversized fetch (a non-IIIF thumb that turns out huge) */
 const MAX_IMAGE_BYTES = 1_500_000;
 const BROWSER_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curio/1.0";
 
 /** AIC thumbs are IIIF (`/full/843,/0/default.jpg`) — rewrite the size segment
  * to a small bounding box so the curator isn't downloading full 843px images

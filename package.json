@@ -1,8 +1,8 @@
 {
-  "name": "loupe",
+  "name": "curio",
   "version": "0.1.0",
   "private": true,
-  "portless": "loupe",
+  "portless": "curio",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

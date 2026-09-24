@@ -10,11 +10,11 @@
  * OpenRouter models cost $0/token for real visitors.
  *
  * Vercel sets `VERCEL=1` in build and runtime. Override either way with
- * LOUPE_LLM_ENGINE=claude|openrouter (handy for testing the hosted path
+ * CURIO_LLM_ENGINE=claude|openrouter (handy for testing the hosted path
  * locally, or forcing the SDK in a self-hosted Node deploy).
  */
 export function useClaudeSdk(): boolean {
-  const override = process.env.LOUPE_LLM_ENGINE?.trim().toLowerCase();
+  const override = process.env.CURIO_LLM_ENGINE?.trim().toLowerCase();
   if (override === "claude") return true;
   if (override === "openrouter") return false;
   return !process.env.VERCEL;
