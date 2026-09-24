@@ -155,6 +155,15 @@ export function AssistantMessage({
     .filter((s) => s.kind === "look")
     .reduce((n, s) => n + (s.items?.filter((i) => i.state === "seen").length ?? 0), 0);
   const hasWork = work.length > 0;
+  // A museum that's down fails every search in the turn; say so once, on
+  // the first search it missed, not as a red chip on each.
+  const reported = new Set<string>();
+  const newlyUnavailable = new Map<StepData, string[]>();
+  for (const s of steps) {
+    const fresh = (s.unavailable ?? []).filter((m) => !reported.has(m));
+    fresh.forEach((m) => reported.add(m));
+    newlyUnavailable.set(s, fresh);
+  }
 
   return (
     <div className="animate-rise flex flex-col gap-3">
@@ -177,6 +186,7 @@ export function AssistantMessage({
                 key={s.key}
                 step={s.step}
                 kept={kept}
+                unavailable={newlyUnavailable.get(s.step)}
                 scanning={scanning && s.step === lastLook}
               />
             ) : s.kind === "text" ? (

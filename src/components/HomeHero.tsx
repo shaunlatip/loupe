@@ -100,9 +100,9 @@ export default function HomeHero({
           <h3 className="caption">Or browse</h3>
           <dl className="flex flex-col gap-2">
             {browse.map(({ group, items }) => (
-              <div key={group} className="flex flex-wrap items-baseline gap-x-4 gap-y-2 max-md:flex-col max-md:gap-2">
+              <div key={group} className="flex items-baseline gap-x-4 gap-y-2 max-md:flex-col max-md:gap-2">
                 <dt className="caption w-20 shrink-0">{group}</dt>
-                <dd className="flex flex-wrap gap-1.5">
+                <dd className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                   {items.map((c) => (
                     <button
                       key={c.id}

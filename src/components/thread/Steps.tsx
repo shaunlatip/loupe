@@ -109,10 +109,13 @@ function LookStrip({
 export function StepRow({
   step,
   kept,
+  unavailable = step.unavailable,
   scanning = false,
 }: {
   step: StepData;
   kept?: Set<string>;
+  /** museums to report as not answering here (the turn reports each once) */
+  unavailable?: string[];
   scanning?: boolean;
 }) {
   const running = step.phase === "running";
@@ -142,9 +145,9 @@ export function StepRow({
                   </span>
                 </Chip>
               )}
-              {step.phase === "done" && step.unavailable && step.unavailable.length > 0 && (
-                <Chip tone="error" title="These museums didn't answer this search">
-                  {`${step.unavailable.join(", ")} didn’t answer`}
+              {step.phase === "done" && unavailable && unavailable.length > 0 && (
+                <Chip tone="error" title="Didn't answer this search; later searches in this turn may miss it too">
+                  {`${unavailable.join(", ")} didn’t answer`}
                 </Chip>
               )}
               {step.phase === "done" && step.items && <PreviewStrip items={step.items} />}

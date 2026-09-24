@@ -751,28 +751,40 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
         <p className="caption hidden text-right lg:block">
           Open-access museum art, curated by an agent
           <br />
-          by{" "}
-          <a
-            href="https://latip.me"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-ink"
-          >
-            Shaun Latip
-          </a>{" "}
-          ·{" "}
-          <a
-            href="https://github.com/shaunlatip/loupe"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-ink"
-          >
-            GitHub
-          </a>
+          <Credit />
         </p>
         <StatusPill />
       </div>
+      {/* narrower: the same credit on its own line under the wordmark */}
+      <p className="caption col-span-12 -mt-2 lg:hidden">
+        Open-access museum art, curated by an agent, <Credit />
+      </p>
     </header>
+  );
+}
+
+function Credit() {
+  return (
+    <>
+      by{" "}
+      <a
+        href="https://latip.me"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="whitespace-nowrap underline underline-offset-2 hover:text-ink"
+      >
+        Shaun Latip
+      </a>{" "}
+      ·{" "}
+      <a
+        href="https://github.com/shaunlatip/loupe"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2 hover:text-ink"
+      >
+        GitHub
+      </a>
+    </>
   );
 }
 
