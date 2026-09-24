@@ -1,134 +1,239 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { AgentStreamEvent } from "@/lib/agent/tools";
-import { runOpenRouterCurator } from "@/lib/agent/openrouter-engine";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  hasToolCall,
+  isStepCount,
+  smoothStream,
+  streamText,
+  type ModelMessage,
+} from "ai";
+import { claudeCode } from "ai-sdk-provider-claude-code";
 import { getArtworkById } from "@/lib/adapters";
-import { useClaudeSdk } from "@/lib/engine";
-import { llmConfigured } from "@/lib/llm";
+import {
+  LOCAL_CURATOR_MODEL,
+  NOT_CONFIGURED,
+  curatorEngine,
+  describeLlmError,
+  hostedConfigured,
+  hostedModel,
+  modelLabel,
+} from "@/lib/ai/models";
+import { attachedArtworkIds, toModelMessages } from "@/lib/agent/history";
+import { createMuseumContext, fallbackExhibit, type MuseumContext } from "@/lib/agent/museum";
+import { CURATOR_PROMPT, HOSTED_NOTE } from "@/lib/agent/prompt";
+import { MCP_TOOL_NAMES, museumMcpServer, museumTools } from "@/lib/agent/tools";
 import { clientKey, rateLimited } from "@/lib/rate-limit";
-import type { Artwork } from "@/lib/types";
+import type { CurioUIMessage, WallContext } from "@/lib/thread/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Vercel Hobby caps functions at 60s (and fails the build above the plan
-// limit). The hosted OpenRouter engine keeps turns short to fit; local runs
-// on the Claude SDK where this ceiling doesn't apply.
+// limit). The hosted loop curates by HOSTED_BUDGET_MS so it always lands.
 export const maxDuration = 60;
 
-// soft per-visitor ceiling on the hosted engine so one person can't drain the
-// free model quota for everyone
+const MAX_STEPS = 8;
+const HOSTED_BUDGET_MS = 38_000;
+const LOCAL_MAX_TURNS = 16;
+
+// soft per-visitor ceiling on the hosted engine
 const TURNS_PER_WINDOW = 12;
 const WINDOW_MS = 10 * 60 * 1000;
 
 interface AgentRequestBody {
-  sessionId?: string;
-  message: string;
-  /** ids of works the user attached from the wall ("Add to chat") */
-  context?: unknown;
+  messages?: CurioUIMessage[];
+  wall?: WallContext;
 }
-
-const CONTEXT_LIMIT = 8;
-const ARTWORK_ID = /^[a-z]+:[\w.-]+$/;
 
 /**
- * Attached works arrive as ids only and are looked up server-side, so the
- * records (and the image URLs view_artworks later fetches) come from the
- * museum adapters rather than from the request. Found records seed this
- * turn's cache; the message gets a plain-text header naming them.
+ * POST /api/agent { messages, wall } → an AI SDK UI message stream.
+ *
+ * One route, two engines behind it (see src/lib/ai/models.ts): the hosted AI
+ * SDK tool loop, or a local Claude Code session. Either way the tools are the
+ * same executors (museum.ts), which narrate their own work as `data-step`
+ * parts and deliver the result as a `data-exhibit` part.
  */
-async function withAttachedWorks(
-  message: string,
-  context: unknown,
-  cache: Map<string, Artwork>,
-): Promise<string> {
-  const ids = Array.isArray(context)
-    ? [...new Set(context.filter((id): id is string => typeof id === "string" && ARTWORK_ID.test(id)))].slice(
-        0,
-        CONTEXT_LIMIT,
-      )
-    : [];
-  if (ids.length === 0) return message;
-
-  const works = await Promise.all(ids.map((id) => getArtworkById(id).catch(() => null)));
-  const lines = ids.map((id, i) => {
-    const a = works[i];
-    if (!a) return `- ${id} (details unavailable)`;
-    cache.set(a.id, a);
-    const size = a.dims?.width && a.dims?.height ? `${a.dims.width}×${a.dims.height}px` : undefined;
-    return `- ${[a.id, a.title, a.artist, a.date, a.medium, size].filter(Boolean).join(" · ")}`;
-  });
-  return `The user attached ${ids.length === 1 ? "this work" : "these works"} from the wall as context. Use view_artworks on the ids to see ${ids.length === 1 ? "it" : "them"}.\n${lines.join("\n")}\n\n${message}`;
-}
-
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as AgentRequestBody;
-  if (!body.message?.trim()) {
-    return NextResponse.json({ error: "message required" }, { status: 400 });
+  let body: AgentRequestBody;
+  try {
+    body = (await req.json()) as AgentRequestBody;
+  } catch {
+    return NextResponse.json({ error: "Expected JSON." }, { status: 400 });
+  }
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") {
+    return NextResponse.json({ error: "The last message must be the visitor's." }, { status: 400 });
   }
 
-  const claude = useClaudeSdk();
-
-  // Guardrails only apply to the hosted engine — local uses your own CLI auth.
-  if (!claude) {
-    if (!llmConfigured()) {
-      return NextResponse.json(
-        { error: "The curator isn't set up on this deployment. It needs OPENROUTER_API_KEY." },
-        { status: 503 },
-      );
+  const engine = curatorEngine();
+  // Guardrails only apply to the hosted engines; local uses your own CLI auth.
+  if (engine !== "claude") {
+    if (!hostedConfigured(engine)) {
+      return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
     }
     if (rateLimited(clientKey(req), TURNS_PER_WINDOW, WINDOW_MS)) {
       return NextResponse.json(
-        { error: "Too many curator turns from this address. Try again in a few minutes." },
+        { error: "That's a lot of exhibits in a few minutes. Give it a moment and try again." },
         { status: 429 },
       );
     }
   }
 
-  const encoder = new TextEncoder();
+  const startedAt = Date.now();
+  const stream = createUIMessageStream<CurioUIMessage>({
+    execute: async ({ writer }) => {
+      writer.write({ type: "start", messageMetadata: { startedAt, engine } });
+      const ctx = createMuseumContext(writer, { hosted: engine !== "claude", signal: req.signal });
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const emit = (event: AgentStreamEvent) => {
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
-        } catch {
-          // client disconnected — let the loop finish quietly
-        }
-      };
+      // Attached works are looked up server-side (never trusting client
+      // records or image URLs) so the tools can resolve them by id.
+      await Promise.all(
+        attachedArtworkIds(last).map((id) =>
+          getArtworkById(id)
+            .then((a) => {
+              if (a) ctx.cache.set(a.id, a);
+            })
+            .catch(() => undefined),
+        ),
+      );
 
-      // req.signal fires when the browser aborts the fetch (the Stop button
-      // or a closed tab); both engines check it between steps.
-      const ctx = {
-        cache: new Map<string, Artwork>(),
-        emit,
-        viewed: new Set<string>(),
-        signal: req.signal,
-      };
+      const meta =
+        engine === "claude"
+          ? await runLocal(messages, body.wall, ctx, writer)
+          : await runHosted(messages, body.wall, ctx, writer, engine, startedAt, req.signal);
 
-      try {
-        const message = await withAttachedWorks(body.message, body.context, ctx.cache);
-        if (claude) {
-          // dynamic import so the Agent SDK never loads on the hosted path
-          const { runClaudeCurator } = await import("@/lib/agent/claude-engine");
-          await runClaudeCurator(message, body.sessionId, ctx);
-        } else {
-          await runOpenRouterCurator(message, body.sessionId, ctx);
-        }
-      } catch (err) {
-        emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
-      } finally {
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
+      if (!ctx.exhibit && !req.signal.aborted) {
+        const fallback = fallbackExhibit(ctx);
+        if (fallback) writer.write({ type: "data-exhibit", id: ctx.nextId("exhibit"), data: fallback });
       }
+      writer.write({ type: "finish", messageMetadata: { ...meta, finishedAt: Date.now() } });
     },
+    onError: describeLlmError,
+  });
+  return createUIMessageStreamResponse({ stream });
+}
+
+type Writer = Parameters<Parameters<typeof createUIMessageStream<CurioUIMessage>>[0]["execute"]>[0]["writer"];
+
+/**
+ * Drop the raw tool-call chunks before they reach the browser. The thread
+ * renders the executors' own data-step parts instead, and the raw outputs are
+ * heavy (search rows as JSON; on the local engine, view_artworks' base64
+ * thumbnails), which would also ride back up with every later request.
+ */
+function withoutToolChunks<T extends { type: string }>(stream: ReadableStream<T>): ReadableStream<T> {
+  return stream.pipeThrough(
+    new TransformStream<T, T>({
+      transform(chunk, controller) {
+        if (!chunk.type.startsWith("tool-")) controller.enqueue(chunk);
+      },
+    }),
+  );
+}
+
+/** Hosted: the AI SDK tool loop over OpenRouter or the Gateway. */
+async function runHosted(
+  messages: CurioUIMessage[],
+  wall: WallContext | undefined,
+  ctx: MuseumContext,
+  writer: Writer,
+  engine: "openrouter" | "gateway",
+  startedAt: number,
+  signal: AbortSignal,
+) {
+  const { model, providerOptions } = hostedModel("curator", engine);
+  const result = streamText({
+    model,
+    instructions: CURATOR_PROMPT + HOSTED_NOTE,
+    messages: toModelMessages(messages, wall),
+    tools: museumTools(ctx),
+    providerOptions: providerOptions as never,
+    maxOutputTokens: 2048,
+    stopWhen: [isStepCount(MAX_STEPS), hasToolCall("present_selection")],
+    prepareStep: ({ stepNumber, messages: stepMessages }) => {
+      const out: { messages?: ModelMessage[]; toolChoice?: { type: "tool"; toolName: "present_selection" } } = {};
+      // Thumbnails from view_artworks reach the model as a user message
+      // (OpenAI-format tool messages are text-only). v7 carries a messages
+      // override forward, so each batch is appended exactly once.
+      if (ctx.pendingImages.length) {
+        const images = ctx.pendingImages.splice(0);
+        out.messages = [
+          ...stepMessages,
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "The works you asked to view, in order:" },
+              ...images.flatMap((img) => [
+                { type: "text" as const, text: img.label },
+                { type: "image" as const, image: img.data, mediaType: img.mimeType },
+              ]),
+            ],
+          },
+        ];
+      }
+      // Always land an exhibit inside the platform's time limit.
+      if (!ctx.exhibit && (Date.now() - startedAt > HOSTED_BUDGET_MS || stepNumber >= MAX_STEPS - 1)) {
+        out.toolChoice = { type: "tool", toolName: "present_selection" };
+      }
+      return out;
+    },
+    abortSignal: signal,
+    experimental_transform: smoothStream({ chunking: "word" }),
+  });
+  writer.merge(
+    withoutToolChunks(
+      result.toUIMessageStream({ sendStart: false, sendFinish: false, sendReasoning: false }),
+    ),
+  );
+  const response = await result.response;
+  return { model: modelLabel(response.modelId, engine), engine };
+}
+
+/** Local: a Claude Code session on your `claude login`, tools over in-process MCP. */
+async function runLocal(
+  messages: CurioUIMessage[],
+  wall: WallContext | undefined,
+  ctx: MuseumContext,
+  writer: Writer,
+) {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const resume = lastAssistant?.metadata?.claudeSessionId;
+  const lastUser = messages[messages.length - 1];
+
+  const model = claudeCode(LOCAL_CURATOR_MODEL, {
+    systemPrompt: CURATOR_PROMPT,
+    mcpServers: { museum: museumMcpServer(ctx) },
+    allowedTools: MCP_TOOL_NAMES,
+    // A curator and nothing else: no built-in Claude Code tools; none of the
+    // user's settings, hooks or CLAUDE.md; and no MCP servers but ours. Without
+    // strictMcpConfig (and the claude.ai connector switch) the session can see
+    // every connector on the signed-in account (Gmail, Todoist, …).
+    tools: [],
+    settingSources: [],
+    strictMcpConfig: true,
+    env: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
+    maxTurns: LOCAL_MAX_TURNS,
+    resume,
   });
 
-  return new Response(stream, {
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-cache",
-    },
+  const result = streamText({
+    model,
+    // Resuming a session: it already holds the earlier turns (with the
+    // images it looked at), so only the new message goes in.
+    messages: toModelMessages(resume ? [lastUser] : messages, wall),
+    abortSignal: ctx.signal,
   });
+  writer.merge(
+    withoutToolChunks(
+      result.toUIMessageStream({ sendStart: false, sendFinish: false, sendReasoning: false }),
+    ),
+  );
+  const finalStep = await result.finalStep;
+  const cc = (finalStep.providerMetadata?.["claude-code"] ?? {}) as { sessionId?: string };
+  return {
+    model: modelLabel(finalStep.response?.modelId ?? LOCAL_CURATOR_MODEL, "claude"),
+    engine: "claude" as const,
+    claudeSessionId: cc.sessionId,
+  };
 }

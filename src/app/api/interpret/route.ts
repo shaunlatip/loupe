@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { generateText, Output } from "ai";
+import { claudeCode } from "ai-sdk-provider-claude-code";
+import { z } from "zod";
 import { CATEGORIES } from "@/lib/presets";
-import { searchQuerySchema } from "@/lib/search-schema";
-import { matchVocab, VOCAB, type VocabEntry } from "@/lib/vocab";
-import { INTERPRET_MODELS, llmClient, llmConfigured, modelParams } from "@/lib/llm";
-import { useClaudeSdk } from "@/lib/engine";
+import { searchFacetsSchema, searchQuerySchema } from "@/lib/search-schema";
+import { matchVocab, vocabCoversPhrase, VOCAB, type VocabEntry } from "@/lib/vocab";
+import {
+  LOCAL_INTERPRET_MODEL,
+  curatorEngine,
+  hostedConfigured,
+  hostedModel,
+} from "@/lib/ai/models";
 import { clientKey, rateLimited } from "@/lib/rate-limit";
 import type { SearchQuery } from "@/lib/types";
 
@@ -11,18 +18,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// soft per-visitor ceiling on LLM compiles (vocab hits are free and uncounted)
+// soft per-visitor ceiling on model compiles (vocab hits are free and uncounted)
 const CALLS_PER_WINDOW = 40;
 const WINDOW_MS = 10 * 60 * 1000;
 
 /**
- * POST /api/interpret { q } → { query, explanation, method } — compiles a
- * vague vibe phrase into one concrete SearchQuery. Fast path: the shared
- * vocabulary (vocab.ts), no LLM. Otherwise one one-shot model call: locally
- * the Claude Agent SDK (method "claude"), on a hosted build the OpenAI-
- * compatible endpoint in llm.ts (method "llm"), chosen by useClaudeSdk().
- * Any failure (missing key, rate limit, unparseable reply) degrades to
- * method:"fallback" (search the phrase as-is); this route never 500s.
+ * POST /api/interpret { q } → { query, explanation, method } — turns a
+ * description into one concrete SearchQuery (the one input's "describe"
+ * route). Fast path: the shared vocabulary, but only when it accounts for the
+ * whole phrase. Otherwise one structured-output model call (a small Claude
+ * locally, the hosted model on Vercel). Any failure degrades to
+ * method:"fallback" (search the phrase as typed); this route never 500s.
  */
 
 interface InterpretResult {
@@ -38,14 +44,12 @@ function mergeVocabQueries(entries: VocabEntry[]): SearchQuery {
     const q = entry.query;
     if (out.q === undefined && q.q !== undefined) out.q = q.q;
     if (out.artist === undefined && q.artist !== undefined) out.artist = q.artist;
-    if (out.dateRange === undefined && q.dateRange !== undefined)
-      out.dateRange = q.dateRange;
+    if (out.dateRange === undefined && q.dateRange !== undefined) out.dateRange = q.dateRange;
     if (q.facets) {
       out.facets ??= {};
       for (const source of ["aic", "cma", "met", "rijks"] as const) {
         const add = q.facets[source];
         if (!add) continue;
-        // field-level first-wins merge within each source namespace
         out.facets[source] = { ...add, ...out.facets[source] };
       }
     }
@@ -53,97 +57,80 @@ function mergeVocabQueries(entries: VocabEntry[]): SearchQuery {
   return out;
 }
 
-function buildInterpretPrompt(): string {
+/** What the model fills in: SearchQuery with years instead of a tuple (a
+ *  2-tuple is awkward for structured-output JSON schemas). */
+const compileSchema = z.object({
+  q: z.string().optional().describe("free-text keyword sent to every museum"),
+  artist: z.string().optional(),
+  yearFrom: z.number().int().optional(),
+  yearTo: z.number().int().optional(),
+  facets: searchFacetsSchema.optional(),
+  explanation: z
+    .string()
+    .describe("one short plain sentence naming the art-historical idea; no em dashes"),
+});
+
+function buildInstructions(): string {
   const vocabTable = VOCAB.map(
-    (v) =>
-      `- ${v.label}${v.note ? ` (${v.note})` : ""}: ${JSON.stringify(v.query)}`,
+    (v) => `- ${v.label}${v.note ? ` (${v.note})` : ""}: ${JSON.stringify(v.query)}`,
   ).join("\n");
-  const categoryTable = CATEGORIES.map(
-    (c) => `- ${c.label}: ${JSON.stringify(c.query)}`,
-  ).join("\n");
+  const categoryTable = CATEGORIES.map((c) => `- ${c.label}: ${JSON.stringify(c.query)}`).join("\n");
 
-  return `You compile a product designer's vague "vibe" phrase into exactly ONE SearchQuery JSON object for museum open-access APIs (Art Institute of Chicago "aic", The Met "met", Cleveland "cma"). The results become full-bleed design backdrops — favor atmospheric works with large calm areas.
+  return `You turn a visitor's description into ONE search over museum open-access APIs (Art Institute of Chicago "aic", The Met "met", Cleveland "cma", Statens Museum for Kunst "smk", Minneapolis "mia"). Keep every idea in the phrase that a museum record could match: subjects, places, periods, techniques, named artists.
 
-SearchQuery shape (all fields optional; omit what you don't need; never invent other fields):
-{
-  "q": string,                      // free-text keyword sent to every source
-  "artist": string,
-  "dateRange": [number, number],    // years
-  "facets": {
-    "aic": { "styleName": string, "subjectName": string, "classificationName": string, "departmentName": string, "dateFrom": number, "dateTo": number },
-    "met": { "departmentId": number, "medium": string, "geoLocation": string, "dateBegin": number, "dateEnd": number, "q": string, "tags": boolean },
-    "cma": { "type": string, "technique": string, "department": string, "culture": string, "createdAfter": number, "createdBefore": number, "q": string }
-  }
-}
+Fields (all optional; omit what you don't need; never invent others): q, artist, yearFrom, yearTo, facets.
+- facets.aic: styleName, subjectName, classificationName, departmentName, dateFrom, dateTo. Names are resolved against AIC's real vocabulary (styles: Impressionism, Post-Impressionism, Baroque, Romanticism, Realism; subjects: Landscapes, Seascapes, Still life, Portraits; classifications: painting, print, woodblock print); unresolvable names are dropped. AIC's night subjects are empty: for nocturnes use q "nocturne".
+- facets.met: departmentId, medium, geoLocation, dateBegin, dateEnd, q, tags (tags:true makes met.q match The Met's subject tags).
+- facets.cma: type, technique, department, culture, createdAfter, createdBefore, q (free text, substring-matched).
+- facets.smk: objectName, nationality, technique, q (Danish values, e.g. objectName "maleri").
+- facets.mia: classification, department, country, q.
+- A top-level q is ANDed with AIC subject filters and can intersect to nothing: when a keyword only helps one museum, put it in that museum's q.
+- Prefer 2-4 concrete fields over many speculative ones.
 
-Rules:
-- aic styleName/subjectName/classificationName are resolved against AIC's real vocabulary at runtime — only use names you'd expect there (styles: Impressionism, Post-Impressionism, Baroque, Romanticism, Realism; subjects: Landscapes, Seascapes, Still life, Portraits; classifications: painting, print, woodblock print). Unresolvable names are dropped silently. AIC's night-related subject terms are empty — for nocturnes use the keyword "nocturne" instead.
-- A top-level "q" is ANDed with aic subject filters and can intersect to empty — when a keyword only helps one source, put it in facets.met.q or facets.cma.q instead.
-- facets.met.tags:true makes facets.met.q match The Met's subject tags.
-- cma fields are free-text and substring-matched.
-- Omit "rijks" entirely (dormant source).
-- Prefer 2–4 concrete fields over many speculative ones.
-
-Known vocabulary recipes (concept: query):
+Known vocabulary (concept: query):
 ${vocabTable}
 
-Category recipes (more working examples):
+Category recipes:
 ${categoryTable}
 
-Example compilations:
-"misty atmospheric morning" → {"query":{"q":"mist","facets":{"aic":{"styleName":"Impressionism"}}},"explanation":"Impressionist mist and fog studies — Monet, Boudin territory."}
-"something dark and moody to put white text on" → {"query":{"q":"nocturne"},"explanation":"Nocturnes — Whistler's dark register, deep grounds for light UI."}
-"quiet dutch kitchen scene" → {"query":{"q":"interior","dateRange":[1600,1700],"facets":{"met":{"geoLocation":"Netherlands","dateBegin":1600,"dateEnd":1700},"cma":{"culture":"Netherlands"}}},"explanation":"Dutch Golden Age domestic interiors."}
-
-Respond with ONLY this JSON object, no markdown fences, no prose:
-{"query": <SearchQuery>, "explanation": "<one sentence naming the art-historical idea>"}`;
+Examples:
+"misty atmospheric morning" → {"q":"mist","facets":{"aic":{"styleName":"Impressionism"}},"explanation":"Impressionist mist and fog studies, Monet and Boudin territory."}
+"a lonely lighthouse on a stormy coast" → {"q":"lighthouse","facets":{"aic":{"subjectName":"Seascapes"},"met":{"q":"storm","tags":true}},"explanation":"Lighthouses and storm-lit coasts from the marine painters."}
+"quiet dutch kitchen scene" → {"q":"interior","yearFrom":1600,"yearTo":1700,"facets":{"met":{"geoLocation":"Netherlands"},"cma":{"culture":"Netherlands"}},"explanation":"Dutch Golden Age domestic interiors."}`;
 }
 
-/** Pull the first {...} JSON object out of a model reply (fences tolerated). */
-function extractJson(text: string): unknown {
-  const cleaned = text.replace(/```(?:json)?/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error("no JSON object in reply");
-  return JSON.parse(cleaned.slice(start, end + 1));
-}
-
-/** Ask the hosted OpenAI-compatible endpoint for the compile; returns raw text. */
-async function llmInterpretText(q: string): Promise<string> {
-  const client = llmClient();
-  const res = await client.chat.completions.create({
-    ...modelParams(INTERPRET_MODELS),
-    messages: [
-      { role: "system", content: buildInterpretPrompt() },
-      { role: "user", content: q },
-    ],
-    max_tokens: 1024,
-    temperature: 0,
+async function compile(q: string, engine: ReturnType<typeof curatorEngine>): Promise<InterpretResult> {
+  const local = engine === "claude";
+  const { model, providerOptions } = local
+    ? {
+        model: claudeCode(LOCAL_INTERPRET_MODEL, {
+          systemPrompt: buildInstructions(),
+          tools: [],
+          settingSources: [],
+          maxTurns: 1,
+        }),
+        providerOptions: undefined,
+      }
+    : hostedModel("interpret", engine);
+  const { output } = await generateText({
+    model,
+    ...(local ? {} : { instructions: buildInstructions() }),
+    prompt: q,
+    output: Output.object({ schema: compileSchema }),
+    providerOptions: providerOptions as never,
+    abortSignal: AbortSignal.timeout(40_000),
   });
-  return res.choices[0]?.message?.content ?? "";
-}
-
-/** Run the compile through whichever engine this build uses, then extract and
- *  validate the JSON (shared, so both engines behave identically downstream). */
-async function compileInterpret(q: string): Promise<InterpretResult> {
-  const claude = useClaudeSdk();
-  let text: string;
-  if (claude) {
-    // dynamic import so the Agent SDK never loads on the hosted path
-    const { interpretRawWithClaudeSdk } = await import("@/lib/agent/claude-engine");
-    text = await interpretRawWithClaudeSdk(q, buildInterpretPrompt());
-  } else {
-    text = await llmInterpretText(q);
-  }
-  const raw = extractJson(text) as { query?: unknown; explanation?: unknown };
-  const parsed = searchQuerySchema.parse(raw.query);
+  const { explanation, yearFrom, yearTo, ...rest } = output;
+  const query = searchQuerySchema.parse({
+    ...rest,
+    ...(yearFrom !== undefined || yearTo !== undefined
+      ? { dateRange: [yearFrom ?? -3000, yearTo ?? 2100] }
+      : {}),
+  });
   return {
-    query: parsed,
-    explanation:
-      typeof raw.explanation === "string" && raw.explanation.trim()
-        ? raw.explanation.trim()
-        : "Compiled by the model.",
-    method: claude ? "claude" : "llm",
+    query,
+    explanation: explanation?.trim() || "Read by the model.",
+    method: local ? "claude" : "llm",
   };
 }
 
@@ -155,35 +142,31 @@ export async function POST(req: NextRequest) {
   } catch {
     /* handled below */
   }
-  if (!q) {
-    return NextResponse.json({ error: "q required" }, { status: 400 });
-  }
+  if (!q) return NextResponse.json({ error: "q required" }, { status: 400 });
 
-  // Fast path: the shared vocabulary, no LLM call.
+  // Fast path: the shared vocabulary, when it covers the whole phrase.
   const matches = matchVocab(q);
-  if (matches.length > 0) {
+  if (vocabCoversPhrase(q, matches)) {
     return NextResponse.json({
       query: mergeVocabQueries(matches),
-      explanation: `Matched: ${matches.map((m) => m.label).join(", ")}.`,
+      explanation: `Read as ${matches.map((m) => m.label).join(", ")}.`,
       method: "vocab",
     } satisfies InterpretResult);
   }
 
-  // Model path — one-shot compile; ANY failure degrades to as-is search. The
-  // hosted engine also skips the call when unconfigured or rate-limited; the
-  // local Claude engine uses your own CLI auth, so no gate there.
   const fallback: InterpretResult = {
     query: { q },
-    explanation: "searched as-is",
+    explanation: "Searched as typed.",
     method: "fallback",
   };
-  if (!useClaudeSdk()) {
-    if (!llmConfigured() || rateLimited(clientKey(req), CALLS_PER_WINDOW, WINDOW_MS)) {
+  const engine = curatorEngine();
+  if (engine !== "claude") {
+    if (!hostedConfigured(engine) || rateLimited(clientKey(req), CALLS_PER_WINDOW, WINDOW_MS)) {
       return NextResponse.json(fallback);
     }
   }
   try {
-    return NextResponse.json(await compileInterpret(q));
+    return NextResponse.json(await compile(q, engine));
   } catch {
     return NextResponse.json(fallback);
   }
