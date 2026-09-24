@@ -246,6 +246,13 @@ export default function Home() {
     (chip: QueryChip) => {
       if (!interpretation) return;
       const next = removeQueryField(interpretation.query, chip);
+      // the last chip gone: nothing of the reading is left, so search the
+      // words exactly as typed
+      if (!next.q && !next.artist && !next.dateRange && !next.facets) {
+        setInterpretation(null);
+        void runQuerySearch({ q: lastQuery }, lastQuery);
+        return;
+      }
       setInterpretation({ ...interpretation, query: next });
       void runQuerySearch(next, lastQuery);
     },

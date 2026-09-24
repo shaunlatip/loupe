@@ -66,8 +66,11 @@ function LookStrip({
     return () => clearInterval(t);
   }, [scanning, items.length]);
 
+  // One row always: a look is at most 8 works (VIEW_LIMIT), so eight columns
+  // of up to 40px that shrink with a narrow thread rather than wrap one
+  // orphan frame onto a second line.
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1">
+    <div className="mt-1.5 grid gap-1" style={{ gridTemplateColumns: "repeat(8, minmax(0, 40px))" }}>
       {items.map((it, i) => {
         const made = kept?.has(it.id);
         const passed = kept && !made;
@@ -79,7 +82,7 @@ function LookStrip({
                 ? `${it.title}: couldn't load this image`
                 : `${it.title}, ${it.artist}${made ? " · made the exhibit" : passed ? " · passed over" : ""}`
             }
-            className={`relative block h-10 w-10 overflow-hidden transition-opacity duration-300 ${
+            className={`relative block aspect-square w-full overflow-hidden transition-opacity duration-300 ${
               it.state === "loading" ? "skeleton" : it.state === "failed" ? "hatch" : "bg-wash"
             } ${passed ? "opacity-40" : "opacity-100"}`}
           >

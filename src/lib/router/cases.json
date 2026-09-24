@@ -14,6 +14,10 @@
   { "q": "Winslow Homer", "route": "lookup" },
   { "q": "Turner", "route": "lookup" },
   { "q": "nocturne", "route": "lookup" },
+  { "q": "Utagawa Hiroshige", "route": "lookup" },
+  { "q": "Claude Monet", "route": "lookup" },
+  { "q": "Monet water lilies", "route": "lookup" },
+  { "q": "Hiroshige bridge", "route": "lookup" },
 
   { "q": "monet mist", "route": "describe" },
   { "q": "misty harbour at dawn", "route": "describe" },

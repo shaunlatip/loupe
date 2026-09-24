@@ -57,6 +57,11 @@ function artists() {
     for (const key of Object.keys(artistMovements as Record<string, unknown>)) {
       const n = normalize(key.replace(",", " "));
       artistNames.add(n);
+      // "hiroshige, utagawa" is typed "Utagawa Hiroshige"
+      if (key.includes(",")) {
+        const [last, first] = key.split(",");
+        artistNames.add(normalize(`${first} ${last}`));
+      }
       const surname = key.includes(",") ? normalize(key.split(",")[0]) : n.split(" ").pop();
       if (surname && surname.length > 3) surnames.add(surname);
     }
@@ -103,12 +108,14 @@ export function classifyRules(input: string, ctx: RouteContext): RouteDecision {
   const isName = names.has(q) || last.has(q) || LABELS.has(q);
   if (isName) return decide("lookup", 0.9, "a known name or label");
 
-  // A short phrase is a lookup unless it carries a mood or a condition: then
-  // it's read as a description, even with an artist in it ("monet mist" wants
-  // Monet's misty works, not every Monet with "mist" in the title).
-  const descriptive = DESCRIPTIVE.test(q) || matchVocab(input).length > 0;
-  if (words <= 3 && !descriptive) return decide("lookup", 0.7, "a short keyword");
-  return decide("describe", descriptive ? 0.7 : 0.55, "a description");
+  // A short phrase is a lookup (the museums' own keyword search does well with
+  // names, titles and subjects, including ones our artist list lacks, like
+  // Hiroshige) unless it carries a mood or a condition: then it's read as a
+  // description, even with an artist in it ("monet mist" wants Monet's misty
+  // works, not every Monet with "mist" in the title).
+  const mood = DESCRIPTIVE.test(q);
+  if (words <= 3 && !mood) return decide("lookup", 0.7, "a short keyword or name");
+  return decide("describe", mood || matchVocab(input).length > 0 ? 0.7 : 0.55, "a description");
 }
 
 /** The composer's verb for a route: what pressing Enter will do. */
