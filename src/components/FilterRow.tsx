@@ -4,6 +4,7 @@ import { CATEGORIES, type Category } from "@/lib/presets";
 import type { SourceId } from "@/lib/types";
 import type { HSL } from "@/lib/color";
 import { hslCss } from "@/lib/color";
+import type { SortMode } from "@/lib/sort";
 import Dropdown, { DropdownOption } from "./Dropdown";
 import ColorPicker from "./ColorPicker";
 
@@ -17,18 +18,9 @@ const SHORT: Record<SourceId, string> = {
   harvard: "Harvard",
 };
 
-/** "relevance" is the unmodified fetch order — the default, unchanged behavior.
- *  "similar" ranks by distance to a picked color; it's driven by the Color
- *  picker (not a directly selectable Sort row) and needs a target to mean
- *  anything, so it's absent from SORTS below. */
-export type SortMode =
-  | "relevance"
-  | "lightest"
-  | "darkest"
-  | "hue"
-  | "calmest"
-  | "similar";
+export type { SortMode };
 
+// "similar" is driven by the Color picker, not a directly selectable row.
 const SORTS: { id: SortMode; label: string }[] = [
   { id: "relevance", label: "Relevance" },
   { id: "lightest", label: "Lightest" },

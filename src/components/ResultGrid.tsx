@@ -117,6 +117,7 @@ function ResultGrid({
   facts,
   aside,
   labelStyle,
+  loadingLabel = "Searching the collections",
   onOpen,
 }: {
   artworks: Artwork[];
@@ -135,6 +136,8 @@ function ResultGrid({
   aside?: ReactNode;
   /** the label band's background (a derived exhibit colour), if any */
   labelStyle?: React.CSSProperties;
+  /** what the shimmer says while loading */
+  loadingLabel?: string;
   onOpen: (a: Artwork) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
@@ -168,9 +171,7 @@ function ResultGrid({
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
               {loading ? (
-                <span className="text-sweep text-[12px] tracking-[0.04em]">
-                  Searching the collections
-                </span>
+                <span className="text-sweep text-[12px] tracking-[0.04em]">{loadingLabel}</span>
               ) : (
                 <>
                   <MetaChip>
@@ -188,7 +189,7 @@ function ResultGrid({
                   {facts}
                   {errors.length > 0 && (
                     <MetaChip tone="error" title={errors.map((e) => e.message).join("\n")}>
-                      {errors.map((e) => sourceLabel(e.source)).join(", ")} didn&rsquo;t answer
+                      {`${errors.map((e) => sourceLabel(e.source)).join(", ")} didn’t answer`}
                     </MetaChip>
                   )}
                 </>

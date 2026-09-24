@@ -22,6 +22,10 @@ import { serverCanFetch, sourceOfId } from "@/lib/source-egress";
  */
 
 const cache = new Map<string, CalmResult>();
+/** ids whose score couldn't be computed, and when to try again. Without this
+ *  a failing image (an AIC 403, say) was re-requested on every render. */
+const failed = new Map<string, number>();
+const RETRY_AFTER_MS = 10 * 60 * 1000;
 const inFlight = new Set<string>();
 const queue: { id: string; url: string }[] = [];
 const queued = new Set<string>();
@@ -63,17 +67,26 @@ function pump() {
               body: bytes,
             }),
           );
+    let resolved = false;
     request
       .then((res) => (res.ok ? (res.json() as Promise<CalmResult>) : null))
       .then((result) => {
-        if (result) cache.set(next.id, result);
+        if (result) {
+          cache.set(next.id, result);
+          resolved = true;
+        } else {
+          failed.set(next.id, Date.now());
+        }
       })
       .catch(() => {
-        /* leave uncached — score stays "unavailable", not an error state in the UI */
+        // the score stays "unavailable" (not an error state in the UI), and
+        // this id rests before it's tried again
+        failed.set(next.id, Date.now());
       })
       .finally(() => {
         inFlight.delete(next.id);
-        notify();
+        // only a new score changes anything anyone renders
+        if (resolved) notify();
         pump();
       });
   });
@@ -81,6 +94,8 @@ function pump() {
 
 function enqueue(id: string, url: string) {
   if (cache.has(id) || inFlight.has(id) || queued.has(id)) return;
+  const failedAt = failed.get(id);
+  if (failedAt !== undefined && Date.now() - failedAt < RETRY_AFTER_MS) return;
   queued.add(id);
   queue.push({ id, url });
   pump();
@@ -104,10 +119,13 @@ export function requestCalmForAll(artworks: Artwork[]): void {
 /** React hook: current score for an artwork, triggering lazy computation on mount. */
 export function useCalmScore(artwork: Artwork): CalmResult | undefined {
   const [, setTick] = useState(0);
+  // Keyed on the id and image, not the object: the wall re-derives its
+  // artwork objects on every re-sort, and identity would re-request.
+  const { id, imageThumb } = artwork;
   useEffect(() => {
-    if (cache.has(artwork.id)) return;
-    requestCalm(artwork);
-  }, [artwork]);
+    if (cache.has(id)) return;
+    enqueue(id, imageThumb);
+  }, [id, imageThumb]);
   useEffect(() => {
     const cb = () => setTick((t) => t + 1);
     subscribers.add(cb);

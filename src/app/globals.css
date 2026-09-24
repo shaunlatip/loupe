@@ -250,6 +250,24 @@ button:active:not(:disabled):not(.press-none) {
   animation: curio-text-sweep 1.8s linear infinite;
 }
 
+/* A frame whose image couldn't load: fine diagonal hatching in the wash,
+ * the drawing-office sign for "nothing here". */
+.hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-wash) 0 4px,
+    var(--color-wash-strong) 4px 5px
+  );
+}
+
+/* loading-dev spinners, squared to the register: Flip and Gather ship with
+ * slightly rounded blocks. Morph keeps its square-to-circle turn on purpose
+ * (motion only; it reads as a loupe coming into focus). */
+.ld-flip-face,
+.ld-gather-block {
+  border-radius: 0 !important;
+}
+
 /* Marker dot — a 6px ink square that blinks while a tool call is running */
 @keyframes curio-blink {
   0%,

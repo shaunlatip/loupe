@@ -145,10 +145,16 @@ export const TOOL_DESCRIPTIONS = {
 
 // — executors
 
+/** Once the exhibit is up the turn is over: further searching or looking
+ *  does no work and shows no step (the local engine can't be stopped at
+ *  present_selection, and a model sometimes keeps polishing). */
+const TURN_OVER = "The exhibit is already up and the turn is over. Stop now and write nothing more.";
+
 export async function searchArtworks(
   args: z.infer<typeof searchInput>,
   ctx: MuseumContext,
 ): Promise<string> {
+  if (ctx.exhibit) return TURN_OVER;
   const id = ctx.nextId("step");
   const terms = [args.artist, args.q].filter(Boolean).join(" · ") || undefined;
   const base: StepData = {
@@ -231,6 +237,7 @@ export async function viewArtworks(
   args: z.infer<typeof viewInput>,
   ctx: MuseumContext,
 ): Promise<{ text: string; images: ViewedImage[] }> {
+  if (ctx.exhibit) return { text: TURN_OVER, images: [] };
   const id = ctx.nextId("step");
   const requested = Array.isArray(args.ids) ? args.ids : [];
   const ids = requested.slice(0, VIEW_LIMIT);

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
+import type { Attachment } from "@/lib/thread/types";
 import Icon from "./Icon";
 import { sourceLabel } from "./SourceBadge";
 
@@ -14,6 +15,7 @@ export default function DetailView({
   onNext,
   position,
   actions,
+  onAttach,
 }: {
   artwork: Artwork;
   onClose: () => void;
@@ -24,6 +26,8 @@ export default function DetailView({
   position?: { index: number; total: number };
   /** slot for save/export affordances added in later slices */
   actions?: React.ReactNode;
+  /** pin the artist or a movement to the next message */
+  onAttach?: (a: Extract<Attachment, { kind: "artist" | "movement" }>) => void;
 }) {
   const calm = useCalmScore(artwork);
   // Off by default — the overlay is a planning aid, not something to greet
@@ -223,19 +227,45 @@ export default function DetailView({
           <h2 className="balance text-[24px] leading-tight font-semibold">
             {artwork.title}
           </h2>
-          <p className="mt-1 text-[15px]">{artwork.artist}</p>
+          {onAttach && artwork.artist ? (
+            <button
+              type="button"
+              onClick={() => onAttach({ kind: "artist", name: artwork.artist })}
+              title={`Add ${artwork.artist} to the next message`}
+              className="group/attach press-none mt-1 flex items-center gap-1.5 text-left text-[15px] underline-offset-2 hover:underline"
+            >
+              {artwork.artist}
+              <Icon
+                icon={Plus}
+                size={13}
+                className="shrink-0 text-ink/40 opacity-0 transition-opacity duration-150 group-hover/attach:opacity-100 group-focus-visible/attach:opacity-100"
+              />
+            </button>
+          ) : (
+            <p className="mt-1 text-[15px]">{artwork.artist}</p>
+          )}
           <p className="caption mt-1">{artwork.date}</p>
 
           {artwork.movements && artwork.movements.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {artwork.movements.map((m) => (
-                <span
-                  key={m}
-                  className="caption border border-ink px-2 py-1 text-accent"
-                >
-                  {m}
-                </span>
-              ))}
+              {artwork.movements.map((m) =>
+                onAttach ? (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => onAttach({ kind: "movement", name: m })}
+                    title={`Add ${m} to the next message`}
+                    className="caption flex items-center gap-1 border border-ink px-2 py-1 text-accent hover:bg-ink hover:text-paper"
+                  >
+                    {m}
+                    <Icon icon={Plus} size={11} />
+                  </button>
+                ) : (
+                  <span key={m} className="caption border border-ink px-2 py-1 text-accent">
+                    {m}
+                  </span>
+                ),
+              )}
             </div>
           )}
 
