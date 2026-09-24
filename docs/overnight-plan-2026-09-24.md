@@ -38,6 +38,7 @@ Principles for every decision below:
 | D11 | Second colour tier (§8): wall colours derived from each set, as flat fields only | Yes: wall label band and detail surround; homepage example cards on hover only |
 | D12 | "On the curator's table" band on the wall during a turn (§7.3) | Yes |
 | D13 | Where the working status shows while the thread is closed (§7.1) | The Curator control becomes a status pill, plus the tab title |
+| D14 | Naming: product and agent share one name | **Curio everywhere.** The agent *is* Curio: "Ask Curio", "Curio looked at 16 works". "Curator" survives only as a descriptor in the tagline ("A curator for five museums' open collections") and as a verb ("curated"). Wherever this plan shows "Curator" as a UI label (header control, thread header, status pill), read "Curio". The domain stays `curiosearch.art`, already bought and attached to the Vercel project. Internal code names (`curator` engine, `CURIO_CURATOR_MODEL`) can stay. **Acceptance:** a grep of user-facing strings finds no "Curator" used as a name, and no "the curator" |
 
 ---
 
@@ -708,6 +709,7 @@ Today: a blurred thumbnail with the caption "loading full size…". Replace it w
 
 ## 12. Workstream J: The curator's voice
 
+- **The agent is Curio (D14).** The prompt opens "You are Curio…" and speaks in the first person. It never calls itself "the curator".
 - **Rewrite `src/lib/agent/prompt.ts` to be art-first.** Today it says "judge as backdrops, not as artworks" and "reject portraits on sight", and every note explains "why it suits a UI backdrop". Apply those criteria only when the brief mentions layout, text, a hero image or a background.
 - **Note voice: first person and specific, like a docent.** For example: "I went looking for skies that overdo it. These twelve share a low horizon and a lot of weather. Start with the Turner."
 - **`present_selection` gains `followUps: string[]`:** 2–3 short refinements, shown as suggestion chips.
