@@ -16,7 +16,7 @@ import { type HSL, colorDistance } from "@/lib/color";
 import SearchBar from "@/components/SearchBar";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
-import FilterRow, { type SortMode } from "@/components/FilterRow";
+import FilterRow, { SortMenu, type SortMode } from "@/components/FilterRow";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import ClaudePanel from "@/components/ClaudePanel";
@@ -31,6 +31,9 @@ import {
   removeArtwork,
 } from "@/lib/collections-client";
 import { serverCanFetch } from "@/lib/source-egress";
+import { ArrowDownToLine, Bookmark, BookmarkCheck, MessageSquarePlus } from "lucide-react";
+import Icon from "@/components/Icon";
+import ScrollTopButton from "@/components/ScrollTopButton";
 import { fileBaseName, imageExtension } from "@/lib/slug";
 
 /**
@@ -285,7 +288,6 @@ export default function Home() {
   const clearChatContext = useCallback(() => setChatContext([]), []);
 
   const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
-  const [artist, setArtist] = useState("");
   const [sort, setSort] = useState<SortMode>("relevance");
   // Picked target color for search-by-color; when set, sort is "similar".
   const [targetColor, setTargetColor] = useState<HSL | undefined>();
@@ -433,10 +435,9 @@ export default function Home() {
       setInterpretation(null);
       setActiveCategories([]);
       const params = new URLSearchParams({ q, sources: sources.join(",") });
-      if (artist.trim()) params.set("artist", artist.trim());
-      void fetchResults(params, artist.trim() ? `${q} · ${artist.trim()}` : q);
+      void fetchResults(params, q);
     },
-    [interpretOn, runInterpret, artist, sources, fetchResults],
+    [interpretOn, runInterpret, sources, fetchResults],
   );
 
   const removeChip = useCallback(
@@ -766,7 +767,7 @@ export default function Home() {
             </h1>
             <div className="flex items-center gap-3">
               <p className="caption hidden lg:block">
-                Open-access museum art for design backdrops · by{" "}
+                Open-access museum art, curated by an agent · by{" "}
                 <a
                   href="https://latip.me"
                   target="_blank"
@@ -843,10 +844,6 @@ export default function Home() {
             onToggleSource={toggleSource}
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
-            artist={artist}
-            onArtist={setArtist}
-            sort={sort}
-            onSort={chooseSort}
             targetColor={targetColor}
             onPickColor={pickColor}
             onClearColor={clearColor}
@@ -893,6 +890,7 @@ export default function Home() {
                 heading={results.heading}
                 note={results.note}
                 loading={loading}
+                aside={<SortMenu sort={sort} onSort={chooseSort} />}
                 emptyHint={
                   results.origin === "collection" ? (
                     <span>Open any work and press Save to add it here.</span>
@@ -910,9 +908,6 @@ export default function Home() {
                             the rest under Sources.
                           </span>
                         )
-                      )}
-                      {artist.trim() && (
-                        <span>The Artist field is narrowing this. Try clearing it.</span>
                       )}
                       {!interpretOn && lastQuery && (
                         <span>
@@ -981,25 +976,30 @@ export default function Home() {
                 <button
                   onClick={() => setSaveOpen((v) => !v)}
                   aria-expanded={saveOpen}
-                  className={`flex-1 border border-ink px-4 py-2 text-[13px] font-semibold ${
+                  className={`flex flex-1 items-center justify-center gap-2 border border-ink px-4 py-2 text-[13px] font-semibold ${
                     saveOpen ? "bg-ink text-paper" : "invert-hover"
                   }`}
                 >
+                  <Icon
+                    icon={collectionSummaries.some((c) => c.has) ? BookmarkCheck : Bookmark}
+                  />
                   {collectionSummaries.some((c) => c.has) ? "Saved" : "Save"}
                 </button>
                 <button
                   onClick={() => void exportOne(open)}
                   disabled={downloading}
                   aria-busy={downloading}
-                  className="invert-hover flex-1 border border-ink px-4 py-2 text-[13px] font-semibold disabled:opacity-40"
+                  className="invert-hover flex flex-1 items-center justify-center gap-2 border border-ink px-4 py-2 text-[13px] font-semibold disabled:opacity-40"
                 >
-                  {downloading ? "Fetching…" : "Download"}
+                  <Icon icon={ArrowDownToLine} />
+                  {downloading ? "Fetching" : "Download"}
                 </button>
               </div>
               <button
                 onClick={() => addToChat(open)}
-                className="invert-hover border border-ink px-4 py-2 text-[13px] font-semibold"
+                className="invert-hover flex items-center justify-center gap-2 border border-ink px-4 py-2 text-[13px] font-semibold"
               >
+                <Icon icon={MessageSquarePlus} />
                 {chatContext.some((a) => a.id === open.id) ? "In chat" : "Add to chat"}
               </button>
               {results.origin === "collection" && activeCollection && (
@@ -1027,6 +1027,8 @@ export default function Home() {
           }
         />
       )}
+
+      <ScrollTopButton enabled={showWall && displayArtworks.length > 0 && !open} />
 
       <ClaudePanel
         open={panelOpen}

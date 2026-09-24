@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import Icon from "./Icon";
 import { sourceLabel } from "./SourceBadge";
 
 export default function DetailView({
@@ -32,7 +34,13 @@ export default function DetailView({
   // never paints in top-to-bottom. Reset whenever the shown work changes so
   // switching artworks re-runs soft→sharp instead of flashing a stale image.
   const [hiresLoaded, setHiresLoaded] = useState(false);
-  useEffect(() => setHiresLoaded(false), [artwork.imageHires]);
+  // Works whose museum reports no dimensions learn their ratio from the
+  // decoded image, then size exactly like the rest (see the frame below).
+  const [naturalRatio, setNaturalRatio] = useState<number | undefined>();
+  useEffect(() => {
+    setHiresLoaded(false);
+    setNaturalRatio(undefined);
+  }, [artwork.imageHires]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,10 +71,10 @@ export default function DetailView({
   // sitting empty. Unknown dims (Met minority) fall back to the hi-res sizing
   // the box on decode — the same split the grid card makes.
   const { width, height } = artwork.dims ?? {};
-  const ratio = width && height ? width / height : undefined;
+  const ratio = width && height ? width / height : naturalRatio;
 
   const stepBtn =
-    "invert-hover border border-ink px-3 py-1 text-[13px] font-semibold disabled:opacity-30 disabled:pointer-events-none";
+    "invert-hover flex h-[30px] w-[38px] items-center justify-center border border-ink disabled:opacity-30 disabled:pointer-events-none";
 
   return (
     <div
@@ -93,7 +101,7 @@ export default function DetailView({
                 title="Previous (←)"
                 className={stepBtn}
               >
-                ←
+                <Icon icon={ArrowLeft} />
               </button>
               <button
                 type="button"
@@ -103,7 +111,7 @@ export default function DetailView({
                 title="Next (→)"
                 className={stepBtn}
               >
-                →
+                <Icon icon={ArrowRight} />
               </button>
             </>
           )}
@@ -163,16 +171,30 @@ export default function DetailView({
               decoding="async"
               referrerPolicy="no-referrer"
               ref={(el) => {
-                if (el?.complete && el.naturalWidth > 0) setHiresLoaded(true);
+                if (el?.complete && el.naturalWidth > 0) {
+                  setHiresLoaded(true);
+                  if (!width || !height) setNaturalRatio(el.naturalWidth / el.naturalHeight);
+                }
               }}
-              onLoad={() => setHiresLoaded(true)}
+              onLoad={(e) => {
+                const el = e.currentTarget;
+                setHiresLoaded(true);
+                if ((!width || !height) && el.naturalWidth > 0) {
+                  setNaturalRatio(el.naturalWidth / el.naturalHeight);
+                }
+              }}
               onError={() => setHiresLoaded(true)}
+              // Without a ratio the image sizes the frame in-flow; container
+              // units (not %) cap it, since a percentage max-height inside
+              // this flex box resolves against nothing and a tall work would
+              // spill past the viewport.
+              style={ratio ? undefined : { maxWidth: "100cqw", maxHeight: "100cqh" }}
               className={
                 ratio
                   ? `absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
                       hiresLoaded ? "opacity-100" : "opacity-0"
                     }`
-                  : "block max-h-full max-w-full object-contain"
+                  : "block object-contain"
               }
             />
             {!hiresLoaded && (
@@ -229,7 +251,9 @@ export default function DetailView({
                 <dt className="caption">Full size</dt>
                 <dd className="tabular font-mono text-[13px]">
                   {width} × {height} px
-                  <span className="caption ml-2">{(width / height).toFixed(2)}:1</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {(width / height).toFixed(2)}:1
+                  </span>
                 </dd>
               </div>
             )}
@@ -255,7 +279,8 @@ export default function DetailView({
                     }}
                   />
                   <span className="font-mono">
-                    hsl({artwork.color.h}, {artwork.color.s}%, {artwork.color.l}%)
+                    hsl({Math.round(artwork.color.h)}, {Math.round(artwork.color.s)}%,{" "}
+                    {Math.round(artwork.color.l)}%)
                   </span>
                 </dd>
               </div>
@@ -265,7 +290,7 @@ export default function DetailView({
                 <dt className="caption">Calm score</dt>
                 <dd className="tabular font-mono text-[13px]">
                   {calm.score}
-                  <span className="caption ml-2 font-sans">of 100</span>
+                  <span className="ml-2 font-sans text-muted-foreground">of 100</span>
                 </dd>
               </div>
             )}

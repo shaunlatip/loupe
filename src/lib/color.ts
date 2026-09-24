@@ -115,5 +115,7 @@ export function hexToHsl(hex: string): HSL | undefined {
     h *= 60;
     if (h < 0) h += 360;
   }
-  return { h, s: s * 100, l: l * 100 };
+  // Whole numbers, like AIC's stored triple: the sort loses nothing it could
+  // perceive, and the detail view never shows "51.999999999999936%".
+  return { h: Math.round(h) % 360, s: Math.round(s * 100), l: Math.round(l * 100) };
 }

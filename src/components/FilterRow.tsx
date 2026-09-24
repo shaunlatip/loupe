@@ -37,30 +37,22 @@ const SORTS: { id: SortMode; label: string }[] = [
   { id: "calmest", label: "Calmest" },
 ];
 
-const GROUP_ORDER: Category["group"][] = [
-  "Movements",
-  "Periods",
-  "Cultures",
-  "Subjects",
-  "Media",
-];
+/** Periods are left out of the bar: two coarse buckets that mostly duplicate
+ *  what a movement or a typed date already says. */
+const GROUP_ORDER: Category["group"][] = ["Movements", "Cultures", "Subjects", "Media"];
 
 /**
- * The whole filter surface in one wrapping row (max two on narrow widths).
- * Trigger accent = "changed from default", so a resting bar reads all-neutral.
+ * The wall's filter bar. It sizes itself against its own container, not the
+ * window (`@container`), because the docked thread takes a resizable slice of
+ * the page: at 1024px of bar or more every taxonomy group gets its own
+ * dropdown; below that they fold into one sectioned "Filters" menu, so the bar
+ * stays a single line at any width a desktop can give it.
  *
- * Taxonomy dropdowns are MULTI-select and compose as an intersection: pick
- * Impressionism (Movements) and Landscape (Subjects) and the grid shows works
- * matching both (see mergeCategoryQueries in presets.ts). Selections persist
- * across every group; a group's trigger shows the one label when a single
- * category is picked, else "N selected". Menus stay open on pick so you can
- * tick several, then click away to close.
- *
- * The Movement dropdown near the end is a different axis — a post-fetch union
- * filter over whatever movements the current results carry (src/lib/movements).
- * Sort sits at the far right (md:ml-auto); Movement sits just left of Artist.
- * Below md the five group dropdowns collapse into one "Filter" dropdown and
- * Sort flows inline (no ml-auto orphan).
+ * Trigger fill = "changed from default", so a resting bar reads all-quiet.
+ * Taxonomy dropdowns are MULTI-select and compose as an intersection (see
+ * mergeCategoryQueries in presets.ts). "In these results" is a different axis:
+ * a post-fetch union filter over the movements the current results carry.
+ * Sort lives with the wall label (it orders results), not here.
  */
 export default function FilterRow({
   sources,
@@ -68,10 +60,6 @@ export default function FilterRow({
   onToggleSource,
   activeCategories,
   onToggleCategory,
-  artist,
-  onArtist,
-  sort,
-  onSort,
   targetColor,
   onPickColor,
   onClearColor,
@@ -84,10 +72,6 @@ export default function FilterRow({
   onToggleSource: (s: SourceId) => void;
   activeCategories: string[];
   onToggleCategory: (id: string) => void;
-  artist: string;
-  onArtist: (v: string) => void;
-  sort: SortMode;
-  onSort: (s: SortMode) => void;
   /** picked target color — ranks results by similarity (sort becomes "similar") */
   targetColor?: HSL;
   onPickColor: (c: HSL) => void;
@@ -97,13 +81,8 @@ export default function FilterRow({
   activeMovements: string[];
   onToggleMovement: (movement: string) => void;
 }) {
-  const sortLabel =
-    sort === "similar"
-      ? "By color"
-      : (SORTS.find((s) => s.id === sort)?.label ?? "Relevance");
-
   // One computation of each group's items + selection state, shared by the
-  // desktop per-group dropdowns and the single mobile "Filter" dropdown.
+  // wide per-group dropdowns and the folded "Filters" menu.
   const taxonomyGroups = GROUP_ORDER.map((group) => {
     const items = CATEGORIES.filter((c) => c.group === group);
     const selected = items.filter((c) => activeCategories.includes(c.id));
@@ -112,52 +91,41 @@ export default function FilterRow({
         ? group
         : selected.length === 1
           ? selected[0].label
-          : `${selected.length} selected`;
+          : `${group} · ${selected.length}`;
     return { group, items, selected, label };
   }).filter((g) => g.items.length > 0);
+  const liveTaxonomy = taxonomyGroups.reduce((n, g) => n + g.selected.length, 0);
+  // At phone width Sources and "In these results" live inside the folded
+  // menu, so its trigger counts their changes too.
+  const sourcesChanged = enabled.length !== sources.length ? 1 : 0;
+  const liveNarrow = liveTaxonomy + sourcesChanged + activeMovements.length;
+
+  const taxonomySections = taxonomyGroups.map(({ group, items }) => (
+    <MenuSection key={group} title={group}>
+      {items.map((c) => (
+        <DropdownOption
+          key={c.id}
+          selected={activeCategories.includes(c.id)}
+          onClick={() => onToggleCategory(c.id)}
+        >
+          {c.label}
+        </DropdownOption>
+      ))}
+    </MenuSection>
+  ));
 
   return (
-    <div className="flex w-full flex-wrap items-center gap-2">
-      {/* — taxonomy filters (multi-select, intersect) — */}
-      {/* Desktop: one dropdown per group. Below md they collapse into the
-          single "Filter" dropdown below (shared activeCategories, no sync). */}
-      {taxonomyGroups.map(({ group, items, selected, label }) => (
-        <Dropdown
-          key={group}
-          className="max-md:hidden"
-          active={selected.length > 0}
-          label={label}
-        >
-          {() =>
-            items.map((c) => (
-              <DropdownOption
-                key={c.id}
-                selected={activeCategories.includes(c.id)}
-                onClick={() => onToggleCategory(c.id)}
-              >
-                {c.label}
-              </DropdownOption>
-            ))
-          }
-        </Dropdown>
-      ))}
-
-      {/* Mobile: every group in one scrollable sectioned panel. */}
-      <Dropdown
-        className="md:hidden"
-        active={activeCategories.length > 0}
-        panelClassName="max-h-72 overflow-y-auto"
-        label={
-          activeCategories.length > 0
-            ? `Filter · ${activeCategories.length}`
-            : "Filter"
-        }
-      >
-        {() =>
-          taxonomyGroups.map(({ group, items }) => (
-            <div key={group} className="border-b border-ink/15 last:border-b-0">
-              <p className="caption px-3 pt-2 pb-1">{group}</p>
-              {items.map((c) => (
+    <div className="@container w-full">
+      <div className="flex flex-wrap items-center gap-2">
+        {taxonomyGroups.map(({ group, items, selected, label }) => (
+          <Dropdown
+            key={group}
+            className="hidden @5xl:block"
+            active={selected.length > 0}
+            label={label}
+          >
+            {() =>
+              items.map((c) => (
                 <DropdownOption
                   key={c.id}
                   selected={activeCategories.includes(c.id)}
@@ -165,119 +133,181 @@ export default function FilterRow({
                 >
                   {c.label}
                 </DropdownOption>
-              ))}
-            </div>
-          ))
-        }
-      </Dropdown>
+              ))
+            }
+          </Dropdown>
+        ))}
 
-      <span
-        aria-hidden
-        className="max-md:hidden mx-1 h-5 w-px self-center bg-ink/25"
-      />
-
-      {/* — refinements — */}
-      <Dropdown
-        active={enabled.length !== sources.length}
-        label={`Sources · ${enabled.length}`}
-      >
-        {() =>
-          sources.map((s) => (
-            <DropdownOption
-              key={s}
-              selected={enabled.includes(s)}
-              onClick={() => onToggleSource(s)}
-            >
-              {SHORT[s]}
-            </DropdownOption>
-          ))
-        }
-      </Dropdown>
-
-      <Dropdown
-        active={!!targetColor}
-        panelClassName="w-64 p-3"
-        label={
-          <span className="flex items-center gap-1.5">
-            {targetColor && (
-              <span
-                aria-hidden
-                className="h-3 w-3 border border-current"
-                style={{ backgroundColor: hslCss(targetColor) }}
-              />
-            )}
-            Color
-          </span>
-        }
-      >
-        {() => (
-          <ColorPicker
-            value={targetColor}
-            onChange={onPickColor}
-            onClear={onClearColor}
-          />
-        )}
-      </Dropdown>
-
-      {movements.length > 0 && (
+        {/* Folded, mid width: every taxonomy group in one sectioned menu. */}
         <Dropdown
-          active={activeMovements.length > 0}
-          label={
-            activeMovements.length > 0
-              ? `Movement · ${activeMovements.length}`
-              : "Movement"
-          }
+          className="hidden @xl:block @5xl:hidden"
+          active={liveTaxonomy > 0}
+          panelClassName="max-h-80 overflow-y-auto"
+          label={liveTaxonomy > 0 ? `Filters · ${liveTaxonomy}` : "Filters"}
+        >
+          {() => taxonomySections}
+        </Dropdown>
+
+        {/* Folded, phone width: Sources and "In these results" join it, so
+            the bar is two buttons rather than a wrapping row with an orphan. */}
+        <Dropdown
+          className="@xl:hidden"
+          active={liveNarrow > 0}
+          panelClassName="max-h-80 overflow-y-auto"
+          label={liveNarrow > 0 ? `Filters · ${liveNarrow}` : "Filters"}
+        >
+          {() => (
+            <>
+              {taxonomySections}
+              <MenuSection title="Sources">
+                {sources.map((s) => (
+                  <DropdownOption
+                    key={s}
+                    selected={enabled.includes(s)}
+                    onClick={() => onToggleSource(s)}
+                  >
+                    {SHORT[s]}
+                  </DropdownOption>
+                ))}
+              </MenuSection>
+              {movements.length > 0 && (
+                <MenuSection title="In these results">
+                  {movements.map((m) => (
+                    <DropdownOption
+                      key={m}
+                      selected={activeMovements.includes(m)}
+                      onClick={() => onToggleMovement(m)}
+                    >
+                      {m}
+                    </DropdownOption>
+                  ))}
+                </MenuSection>
+              )}
+            </>
+          )}
+        </Dropdown>
+
+        <span aria-hidden className="mx-1 hidden h-5 w-px self-center bg-ink/25 @xl:block" />
+
+        <Dropdown
+          className="hidden @xl:block"
+          active={enabled.length !== sources.length}
+          label={`Sources · ${enabled.length}`}
         >
           {() =>
-            movements.map((m) => (
+            sources.map((s) => (
               <DropdownOption
-                key={m}
-                selected={activeMovements.includes(m)}
-                onClick={() => onToggleMovement(m)}
+                key={s}
+                selected={enabled.includes(s)}
+                onClick={() => onToggleSource(s)}
               >
-                {m}
+                {SHORT[s]}
               </DropdownOption>
             ))
           }
         </Dropdown>
-      )}
 
-      <input
-        type="text"
-        value={artist}
-        onChange={(e) => onArtist(e.target.value)}
-        placeholder="Artist"
-        aria-label="Restrict to an artist"
-        title="Applies to the next keyword search"
-        autoComplete="off"
-        className="border border-ink bg-paper px-2 py-1 text-[12px] text-ink outline-none max-md:w-28 placeholder:text-muted-foreground focus:bg-wash"
-      />
+        <Dropdown
+          active={!!targetColor}
+          panelClassName="w-64 p-3"
+          label={
+            <span className="flex items-center gap-1.5">
+              {targetColor && (
+                <span
+                  aria-hidden
+                  className="h-3 w-3 border border-current"
+                  style={{ backgroundColor: hslCss(targetColor) }}
+                />
+              )}
+              Color
+            </span>
+          }
+        >
+          {() => (
+            <ColorPicker
+              value={targetColor}
+              onChange={onPickColor}
+              onClear={onClearColor}
+            />
+          )}
+        </Dropdown>
 
-      <Dropdown
-        className="md:ml-auto"
-        align="right"
-        active={sort !== "relevance"}
-        label={
-          <span>
-            Sort<span className="hidden md:inline"> · {sortLabel}</span>
-          </span>
-        }
-      >
-        {(close) =>
-          SORTS.map((s) => (
-            <DropdownOption
-              key={s.id}
-              selected={sort === s.id}
-              onClick={() => {
-                onSort(s.id);
-                close();
-              }}
-            >
-              {s.label}
-            </DropdownOption>
-          ))
-        }
-      </Dropdown>
+        {movements.length > 0 && (
+          <Dropdown
+            className="hidden @xl:block"
+            active={activeMovements.length > 0}
+            title="Narrow these results to one or more movements"
+            label={
+              activeMovements.length > 0
+                ? `In these results · ${activeMovements.length}`
+                : "In these results"
+            }
+          >
+            {() =>
+              movements.map((m) => (
+                <DropdownOption
+                  key={m}
+                  selected={activeMovements.includes(m)}
+                  onClick={() => onToggleMovement(m)}
+                >
+                  {m}
+                </DropdownOption>
+              ))
+            }
+          </Dropdown>
+        )}
+      </div>
     </div>
+  );
+}
+
+function MenuSection({
+  title,
+  className = "",
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`border-b border-ink/15 last:border-b-0 ${className}`}>
+      <p className="caption px-3 pt-2 pb-1">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+/** Sort, as it sits at the right end of the wall label. */
+export function SortMenu({
+  sort,
+  onSort,
+}: {
+  sort: SortMode;
+  onSort: (s: SortMode) => void;
+}) {
+  const label =
+    sort === "similar" ? "By color" : (SORTS.find((s) => s.id === sort)?.label ?? "Relevance");
+  return (
+    <Dropdown
+      align="right"
+      active={sort !== "relevance"}
+      label={<span>Sort · {label}</span>}
+    >
+      {(close) =>
+        SORTS.map((s) => (
+          <DropdownOption
+            key={s.id}
+            selected={sort === s.id}
+            onClick={() => {
+              onSort(s.id);
+              close();
+            }}
+          >
+            {s.label}
+          </DropdownOption>
+        ))
+      }
+    </Dropdown>
   );
 }

@@ -1,35 +1,51 @@
 "use client";
 
-import { useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Artwork, SourceError } from "@/lib/types";
 import ArtworkCard from "./ArtworkCard";
 import { sourceLabel } from "./SourceBadge";
 
 /**
- * Column count that tracks the same breakpoints the old CSS multi-column used
- * (Tailwind md = 48rem → 3, xl = 80rem → 4, else 2). useSyncExternalStore on
- * matchMedia so it re-renders on resize without a layout-thrash effect. The
- * grid only renders client-side after a fetch, so the server snapshot (2) is a
- * formality that never paints.
+ * Column count from the grid's own width, not the window's: the docked thread
+ * takes a resizable slice of the page, so the same window can hold a wide or a
+ * narrow wall. ResizeObserver on the section; the thresholds keep columns
+ * between ~240px and ~320px wide.
  */
-function useColumnCount(): number {
-  return useSyncExternalStore(
-    (cb) => {
-      const wide = window.matchMedia("(min-width: 80rem)");
-      const mid = window.matchMedia("(min-width: 48rem)");
-      wide.addEventListener("change", cb);
-      mid.addEventListener("change", cb);
-      return () => {
-        wide.removeEventListener("change", cb);
-        mid.removeEventListener("change", cb);
-      };
-    },
-    () => {
-      if (window.matchMedia("(min-width: 80rem)").matches) return 4;
-      if (window.matchMedia("(min-width: 48rem)").matches) return 3;
-      return 2;
-    },
-    () => 2,
+function useColumnCount(ref: React.RefObject<HTMLElement | null>): number {
+  const [k, setK] = useState(3);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = (w: number) => setK(w >= 1100 ? 4 : w >= 680 ? 3 : 2);
+    measure(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return k;
+}
+
+/** A quiet fact in the wall label: wash fill, caption size, no rule. */
+export function MetaChip({
+  children,
+  tone = "default",
+  title,
+}: {
+  children: ReactNode;
+  tone?: "default" | "error";
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center px-2 py-0.5 text-[11px] leading-[1.5] tracking-[0.04em] ${
+        tone === "error"
+          ? "border border-destructive/60 text-destructive"
+          : "bg-wash text-ink/80"
+      }`}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -91,13 +107,16 @@ function SkeletonGrid({ k }: { k: number }) {
   );
 }
 
-export default function ResultGrid({
+function ResultGrid({
   artworks,
   errors,
   heading,
   note,
   loading = false,
   emptyHint,
+  facts,
+  aside,
+  labelStyle,
   onOpen,
 }: {
   artworks: Artwork[];
@@ -110,22 +129,34 @@ export default function ResultGrid({
   loading?: boolean;
   /** rendered inside the no-results state (suggested next moves) */
   emptyHint?: ReactNode;
+  /** extra chips after the counts (e.g. an interpreted query's facets) */
+  facts?: ReactNode;
+  /** right end of the label's fact row (Sort) */
+  aside?: ReactNode;
+  /** the label band's background (a derived exhibit colour), if any */
+  labelStyle?: React.CSSProperties;
   onOpen: (a: Artwork) => void;
 }) {
-  const k = useColumnCount();
+  const sectionRef = useRef<HTMLElement>(null);
+  const k = useColumnCount(sectionRef);
   const columns = useMemo(() => distribute(artworks, k), [artworks, k]);
 
   const sourceCount = new Set(artworks.map((a) => a.source)).size;
   const count = artworks.length;
 
   return (
-    <section aria-busy={loading}>
+    <section ref={sectionRef} aria-busy={loading}>
       {/* Wall label — the museum-caption register: what you're looking at,
           then how much of it and from where. */}
       {(heading || note || count > 0 || loading) && (
-        <header className="mb-8 flex flex-col gap-2 border-b border-ink pb-4">
+        <header
+          className={`mb-8 flex flex-col gap-3 border-b border-ink pb-4 transition-[background-color] duration-200 ${
+            labelStyle ? "-mx-6 px-6 pt-5" : ""
+          }`}
+          style={labelStyle}
+        >
           {heading && (
-            <h2 className="text-outline balance text-[36px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[28px]">
+            <h2 className="balance text-[32px] leading-[1.1] font-semibold tracking-[-0.015em] max-md:text-[24px]">
               {heading}
             </h2>
           )}
@@ -134,24 +165,37 @@ export default function ResultGrid({
               {note}
             </p>
           )}
-          <p className="caption tabular" aria-live="polite">
-            {loading
-              ? "Searching the collections…"
-              : count === 0
-                ? "No works"
-                : `${count} ${count === 1 ? "work" : "works"} · ${sourceCount} ${
-                    sourceCount === 1 ? "museum" : "museums"
-                  }`}
-            {!loading && errors.length > 0 && (
-              <>
-                {" · "}
-                <span title={errors.map((e) => e.message).join("\n")}>
-                  {errors.map((e) => sourceLabel(e.source)).join(", ")} didn&rsquo;t
-                  answer
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
+              {loading ? (
+                <span className="text-sweep text-[12px] tracking-[0.04em]">
+                  Searching the collections
                 </span>
-              </>
-            )}
-          </p>
+              ) : (
+                <>
+                  <MetaChip>
+                    <span className="tabular">
+                      {count === 0 ? "No works" : `${count} ${count === 1 ? "work" : "works"}`}
+                    </span>
+                  </MetaChip>
+                  {count > 0 && (
+                    <MetaChip>
+                      <span className="tabular">
+                        {sourceCount} {sourceCount === 1 ? "museum" : "museums"}
+                      </span>
+                    </MetaChip>
+                  )}
+                  {facts}
+                  {errors.length > 0 && (
+                    <MetaChip tone="error" title={errors.map((e) => e.message).join("\n")}>
+                      {errors.map((e) => sourceLabel(e.source)).join(", ")} didn&rsquo;t answer
+                    </MetaChip>
+                  )}
+                </>
+              )}
+            </div>
+            {aside && count > 0 && <div className="ml-auto shrink-0">{aside}</div>}
+          </div>
         </header>
       )}
 
@@ -185,3 +229,7 @@ export default function ResultGrid({
     </section>
   );
 }
+
+/** Memoised: the page re-renders on every streamed curator token; the wall
+ *  only needs to when its own inputs change. */
+export default memo(ResultGrid);

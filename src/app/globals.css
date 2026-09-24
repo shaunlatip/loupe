@@ -12,6 +12,7 @@
   --color-accent: #2400ff; /* Klein-blue territory — active states + Claude panel */
   --color-rule: #0a0a0a; /* 1px structural rules are ink, not gray */
   --color-wash: #f2f2f2; /* input/hover wash — the one non-ink surface */
+  --color-wash-strong: #e6e6e6; /* the wash, pressed: hover/open on a wash control */
 
   /* shadcn semantic names, mapped to the museum register
      (the ui/ chat components read these) */
