@@ -38,6 +38,7 @@ Principles for every decision below:
 | D11 | Second colour tier (§8): wall colours derived from each set, as flat fields only | Yes: wall label band and detail surround; homepage example cards on hover only |
 | D12 | "On the curator's table" band on the wall during a turn (§7.3) | Yes |
 | D13 | Where the working status shows while the thread is closed (§7.1) | The Curator control becomes a status pill, plus the tab title |
+| D15 | The result metaphor: "hung" / "hanging" / "on the wall" | **Replaced by curating an exhibit.** The step reads "Curating the exhibit"; the result is "the exhibit"; done reads "✓ Curated an exhibit of 12 works"; the kept/passed reveal becomes "made the exhibit"; phrases say "Arranging the exhibit" and "Writing the exhibit text". "Wall" stays an internal code term only. Applies to every place this plan says hung, hang, hanging or "on the wall" in UI copy |
 | D14 | Naming: product and agent share one name | **Curio everywhere.** The agent *is* Curio: "Ask Curio", "Curio looked at 16 works". "Curator" survives only as a descriptor in the tagline ("A curator for five museums' open collections") and as a verb ("curated"). Wherever this plan shows "Curator" as a UI label (header control, thread header, status pill), read "Curio". The domain stays `curiosearch.art`, already bought and attached to the Vercel project. Internal code names (`curator` engine, `CURIO_CURATOR_MODEL`) can stay. **Acceptance:** a grep of user-facing strings finds no "Curator" used as a name, and no "the curator" |
 
 ---
