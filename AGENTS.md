@@ -65,7 +65,7 @@ Each implements `SourceAdapter { id, label, enabled(), search(q), getById(id) }`
 
 ### Category taxonomy (`src/lib/presets.ts`)
 
-`CATEGORIES: Category[]` — data only, `{ id, label, group, query }`. The filter bar (`FilterRow.tsx`) shows Movements / Cultures / Subjects / Media as dropdowns at wide widths and folds them into one Filters menu as it narrows (container queries); the empty wall offers Movements and Subjects. **AIC carries movements/subjects via its real vocabulary; Met/CMA get era + place + media proxies.** Movements on every record come from the Wikidata join (`src/data/artist-movements.json`, `src/lib/movements.ts`).
+`CATEGORIES: Category[]` — data only, `{ id, label, group, query }`. The bar under the input (`FilterRow.tsx`) holds what starts a new query: Movements / Cultures / Subjects / Media as dropdowns at wide widths, folded into one Filters menu as it narrows (container queries), plus Sources. What acts on the works already shown (Color, In these results, Sort) sits at the right of the wall label (`WallTools`). The empty wall offers Movements and Subjects. **AIC carries movements/subjects via its real vocabulary; Met/CMA get era + place + media proxies.** Movements on every record come from the Wikidata join (`src/data/artist-movements.json`, `src/lib/movements.ts`).
 
 ### Curio, the agent (`src/lib/agent/`, `src/app/api/agent/route.ts`, `src/components/thread/`)
 
@@ -84,7 +84,7 @@ A dialog with ← / → through the wall. The frame reserves the picture's box f
 
 ### Collections & export (`src/lib/collections-client.ts`, `export.ts` + route)
 
-Collections live in the **browser's localStorage** (full Artwork records) — no server state, which is what lets the app run on a read-only host. `POST /api/export {artworks, folderName?}` streams back one image or a zip of `imageHires` + per-work sidecar JSON + `ATTRIBUTION.md`. Single-work **Download** for AIC is fetched by the browser itself (see § Deploy — AIC egress).
+Collections are reached from a square Bookmark button beside Curio in the header (`CollectionsMenu`, shown once something is saved): open one on the wall, download it, or delete it. They live in the **browser's localStorage** (full Artwork records) — no server state, which is what lets the app run on a read-only host. `POST /api/export {artworks, folderName?}` streams back one image or a zip of `imageHires` + per-work sidecar JSON + `ATTRIBUTION.md`. Single-work **Download** for AIC is fetched by the browser itself (see § Deploy — AIC egress).
 
 ### Calm scoring (`src/lib/calm.ts`, `calm-server.ts`, `calm-client.ts`, `/api/calm`)
 
@@ -113,7 +113,7 @@ src/lib/
   collections-client.ts export.ts zip.ts slug.ts calm*.ts source-egress.ts rate-limit.ts
 src/components/
   HomeHero FilterRow Dropdown ColorPicker ResultGrid ArtworkCard SourceBadge
-  DetailView SaveMenu CollectionsBar ScrollTopButton Icon
+  DetailView SaveMenu CollectionsMenu ScrollTopButton Icon
   thread/  ThreadProvider Thread Composer Message Steps ExhibitCard StatusPill
            CuratorTable Glyph Live status phrases
 scripts/
