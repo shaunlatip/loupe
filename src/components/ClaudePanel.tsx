@@ -362,10 +362,6 @@ export default function ClaudePanel({
                 </button>
               ))}
             </div>
-            <p className="caption pretty leading-relaxed">
-              Then refine in plain words: “warmer”, “more abstract”, “just Monet”,
-              “swap the portraits out”.
-            </p>
           </div>
         )}
 
@@ -489,27 +485,22 @@ export default function ClaudePanel({
           submit();
         }}
       >
-        <div className="flex min-w-0 flex-1 flex-col">
-          <textarea
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            rows={2}
-            enterKeyHint="send"
-            aria-label="Message the curator"
-            placeholder={hasTurns ? "Refine, or ask for something else…" : "Describe the backdrop you need…"}
-            className="w-full resize-none bg-paper px-4 pt-3 pb-1 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground focus:bg-wash"
-          />
-          <span className="caption px-4 pb-2 text-[10px]">
-            Enter to send · Shift+Enter for a new line
-          </span>
-        </div>
+        <textarea
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          rows={2}
+          enterKeyHint="send"
+          aria-label="Message the curator"
+          placeholder={hasTurns ? "Refine, or ask for something else…" : "Describe the backdrop you need…"}
+          className="min-w-0 flex-1 resize-none self-stretch bg-paper px-4 py-3 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground focus:bg-wash"
+        />
         {busy ? (
           <button
             type="button"

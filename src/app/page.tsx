@@ -33,19 +33,8 @@ import {
 import { serverCanFetch } from "@/lib/source-egress";
 import { fileBaseName, imageExtension } from "@/lib/slug";
 
-// "Fits a hero": landscape-ish and big enough to sit full-bleed behind UI —
-// see the Shopify-Editions backdrop use case in AGENTS.md.
-const HERO_MIN_ASPECT = 1.4;
-const HERO_MIN_WIDTH = 2000;
-
-function fitsHero(a: Artwork): boolean {
-  const { width, height } = a.dims ?? {};
-  if (!width || !height) return false;
-  return width / height >= HERO_MIN_ASPECT && width >= HERO_MIN_WIDTH;
-}
-
 /**
- * Sort composes with the hero filter (filter first, then sort). Works
+ * Sort runs after the movement filter (filter first, then sort). Works
  * lacking `color` (Met/CMA, or AIC records AIC itself didn't analyze) sort
  * to the end rather than dropping out — Array#sort is stable, so within
  * each group (has-color / no-color) original relative order is preserved.
@@ -285,7 +274,6 @@ export default function Home() {
   const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
   const [artist, setArtist] = useState("");
   const [sort, setSort] = useState<SortMode>("relevance");
-  const [heroOnly, setHeroOnly] = useState(false);
   // Picked target color for search-by-color; when set, sort is "similar".
   const [targetColor, setTargetColor] = useState<HSL | undefined>();
   // Movement chips are derived from the current results (see the memo
@@ -689,24 +677,12 @@ export default function Home() {
   // whichever artwork object was clicked out of displayArtworks) — sees
   // `movements` whether the source is AIC, Met, or CMA.
   //
-  // Hero rule: dims are only sometimes known, so a work with no usable
-  // width/height can never be *confirmed* hero-fit — it's excluded rather
-  // than guessed into the grid. To keep that exclusion from silently
-  // hollowing out the grid, the count hidden for missing dims is surfaced
-  // as a caption instead of just vanishing.
-  //
-  // Movement chips are derived from the hero-filtered list (what's actually
-  // browsable right now) and only rendered when non-empty; multi-select is
-  // a union (OR) — a work matching any selected movement stays in.
-  const { displayArtworks, heroHiddenCount, availableMovements, colorlessCount } =
+  // Movement chips are derived from the current results and only rendered
+  // when non-empty; multi-select is a union (OR) — a work matching any
+  // selected movement stays in.
+  const { displayArtworks, availableMovements, colorlessCount } =
     useMemo(() => {
     let list = enrichArtworksWithMovements(results.artworks);
-    let hiddenForDims = 0;
-    if (heroOnly) {
-      const withDims = list.filter((a) => a.dims?.width && a.dims?.height);
-      hiddenForDims = list.length - withDims.length;
-      list = withDims.filter(fitsHero);
-    }
 
     const movementSet = new Set<string>();
     for (const a of list) for (const m of a.movements ?? []) movementSet.add(m);
@@ -725,13 +701,12 @@ export default function Home() {
 
     return {
       displayArtworks: sortArtworks(list, sort, targetColor),
-      heroHiddenCount: hiddenForDims,
       availableMovements,
       colorlessCount,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- calmTick forces
     // a re-sort as lazily-computed scores resolve; it carries no data itself.
-  }, [results.artworks, sort, heroOnly, activeMovements, targetColor, calmTick]);
+  }, [results.artworks, sort, activeMovements, targetColor, calmTick]);
 
   // Detail navigation: ← / → walk the wall in its displayed order.
   const openIndex = open ? displayArtworks.findIndex((a) => a.id === open.id) : -1;
@@ -859,8 +834,6 @@ export default function Home() {
             onArtist={setArtist}
             sort={sort}
             onSort={chooseSort}
-            heroOnly={heroOnly}
-            onHeroToggle={() => setHeroOnly((v) => !v)}
             targetColor={targetColor}
             onPickColor={pickColor}
             onClearColor={clearColor}
@@ -870,32 +843,29 @@ export default function Home() {
           />
         </header>
 
-        <div className="border-b border-ink py-3">
-          <CollectionsBar
-            collections={collectionSummaries}
-            active={activeCollection}
-            onOpen={openCollection}
-            onExport={(id) => void exportCollection(id)}
-            onDelete={removeCollection}
-            exporting={exporting}
-          />
-          {exportNote && (
-            <p className="caption animate-rise mt-2" role="status">
-              {exportNote}
-            </p>
-          )}
-        </div>
+        {/* Hidden until something is saved; Save in the detail view creates
+            the first collection. */}
+        {(collectionSummaries.length > 0 || exportNote) && (
+          <div className="border-b border-ink py-3">
+            <CollectionsBar
+              collections={collectionSummaries}
+              active={activeCollection}
+              onOpen={openCollection}
+              onExport={(id) => void exportCollection(id)}
+              onDelete={removeCollection}
+              exporting={exporting}
+            />
+            {exportNote && (
+              <p className="caption animate-rise mt-2" role="status">
+                {exportNote}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="pt-8">
           {showWall ? (
             <>
-              {heroOnly && heroHiddenCount > 0 && (
-                <p className="caption animate-rise mb-4">
-                  Fits a hero is hiding {heroHiddenCount}{" "}
-                  {heroHiddenCount === 1 ? "work" : "works"} whose size the museum
-                  doesn&rsquo;t report.
-                </p>
-              )}
               {sort === "similar" && colorlessCount > 0 && (
                 <p className="caption animate-rise mb-4">
                   Color ranking uses each museum&rsquo;s own palette data (AIC, SMK,
@@ -913,11 +883,6 @@ export default function Home() {
                 emptyHint={
                   results.origin === "collection" ? (
                     <span>Open any work and press Save to add it here.</span>
-                  ) : heroOnly && results.artworks.length > 0 ? (
-                    <span>
-                      Every result failed the hero rule (landscape, 2000px wide or
-                      more). Turn off Fits a hero to see them.
-                    </span>
                   ) : activeMovements.length > 0 && results.artworks.length > 0 ? (
                     <span>No work here carries that movement. Clear the Movement filter.</span>
                   ) : (
@@ -1072,7 +1037,7 @@ function EmptyWall({
     <div className="animate-fade grid gap-10 py-6 md:grid-cols-[1.2fr_1fr] md:gap-16 md:py-12">
       <div className="flex flex-col gap-6">
         <p className="pretty max-w-[26ch] text-[28px] leading-[1.15] font-semibold tracking-[-0.01em] max-md:text-[22px]">
-          Public-domain paintings, sized for a hero, from five museums&rsquo; open
+          Public-domain paintings from five museums&rsquo; open
           collections.
         </p>
         <p className="pretty max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">

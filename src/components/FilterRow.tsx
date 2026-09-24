@@ -72,8 +72,6 @@ export default function FilterRow({
   onArtist,
   sort,
   onSort,
-  heroOnly,
-  onHeroToggle,
   targetColor,
   onPickColor,
   onClearColor,
@@ -90,8 +88,6 @@ export default function FilterRow({
   onArtist: (v: string) => void;
   sort: SortMode;
   onSort: (s: SortMode) => void;
-  heroOnly: boolean;
-  onHeroToggle: () => void;
   /** picked target color — ranks results by similarity (sort becomes "similar") */
   targetColor?: HSL;
   onPickColor: (c: HSL) => void;
@@ -197,18 +193,6 @@ export default function FilterRow({
           ))
         }
       </Dropdown>
-
-      <button
-        type="button"
-        onClick={onHeroToggle}
-        aria-pressed={heroOnly}
-        title="Only works at least 2000px wide with a landscape aspect of 1.4 or more"
-        className={`border border-ink px-3 py-1 text-[12px] ${
-          heroOnly ? "bg-accent text-paper" : "invert-hover"
-        }`}
-      >
-        Fits a hero
-      </button>
 
       <Dropdown
         active={!!targetColor}

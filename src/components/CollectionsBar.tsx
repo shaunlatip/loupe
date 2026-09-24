@@ -21,14 +21,7 @@ export default function CollectionsBar({
   onDelete?: (id: string) => void;
   exporting?: string;
 }) {
-  if (collections.length === 0) {
-    return (
-      <p className="caption">
-        <span className="text-ink">Collections</span> · none yet. Open a work and
-        press Save.
-      </p>
-    );
-  }
+  if (collections.length === 0) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-2">

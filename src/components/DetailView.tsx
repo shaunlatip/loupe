@@ -191,7 +191,7 @@ export default function DetailView({
                 }}
               >
                 <span className="caption absolute left-0 top-0 -translate-y-full bg-paper px-1 text-accent">
-                  UI-safe zone
+                  Calmest area
                 </span>
               </div>
             )}
@@ -265,9 +265,7 @@ export default function DetailView({
                 <dt className="caption">Calm score</dt>
                 <dd className="tabular font-mono text-[13px]">
                   {calm.score}
-                  <span className="caption ml-2 font-sans">
-                    of 100 · share of the picture quiet enough to sit UI on
-                  </span>
+                  <span className="caption ml-2 font-sans">of 100</span>
                 </dd>
               </div>
             )}
@@ -300,8 +298,7 @@ export default function DetailView({
                   showSafeZone ? "bg-accent" : "bg-paper"
                 }`}
               />
-              Show UI-safe zone
-              <span className="caption ml-auto">largest quiet area</span>
+              Show calmest area
             </label>
           )}
 
