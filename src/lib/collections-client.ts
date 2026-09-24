@@ -2,7 +2,7 @@ import type { Artwork } from "@/lib/types";
 import { slugify } from "@/lib/slug";
 
 /**
- * Collections live in the browser's localStorage — Loupe deploys to a
+ * Collections live in the browser's localStorage — Curio deploys to a
  * read-only serverless host (Vercel), so there's no server filesystem to
  * persist to. Same shape and CRUD semantics as the old server store; every
  * mutation returns the full list so callers can setState in one line.
@@ -20,11 +20,20 @@ interface CollectionsFile {
   collections: Collection[];
 }
 
-const KEY = "loupe.collections.v1";
+const KEY = "curio.collections.v1";
+// Pre-rename key (the app was called Loupe) — moved to KEY on first read.
+const LEGACY_KEY = "loupe.collections.v1";
 
 function load(): CollectionsFile {
   if (typeof window === "undefined") return { version: 1, collections: [] };
   try {
+    const legacy = window.localStorage.getItem(LEGACY_KEY);
+    if (legacy !== null) {
+      if (window.localStorage.getItem(KEY) === null) {
+        window.localStorage.setItem(KEY, legacy);
+      }
+      window.localStorage.removeItem(LEGACY_KEY);
+    }
     const raw = window.localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as CollectionsFile;

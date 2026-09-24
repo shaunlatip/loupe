@@ -18,7 +18,7 @@ function clamp01(n: number) {
 
 /**
  * Amplo's interaction (saturation/value square + hue bar + swatch row) in
- * Loupe's flat register: zero radius, 1px ink borders, no shadows, one accent.
+ * Curio's flat register: zero radius, 1px ink borders, no shadows, one accent.
  * Emits HSL (the shape Artwork.color is stored in) on every change; drives the
  * search-by-color similarity ranking. Not a full sRGB/P3 picker — it only
  * needs to name a target hue to rank toward.

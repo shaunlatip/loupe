@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
 /**
- * One OpenAI-compatible client for every LLM call in Loupe. Defaults to
+ * One OpenAI-compatible client for every LLM call in Curio. Defaults to
  * OpenRouter, whose `:free` models cost $0/token (rate-limited), but any
  * OpenAI-compatible endpoint works — Gemini, Qwen/DashScope, DeepSeek, GLM,
  * or OpenRouter routing to Anthropic/OpenAI — by pointing LLM_BASE_URL at it.
@@ -16,7 +16,7 @@ import OpenAI from "openai";
  * (50/day, or 1,000/day once $10 of credits has settled) that a public demo
  * exhausts fast; a paid model has no daily cap and costs cents
  * (gemini-2.5-flash-lite ≈ $0.10/$0.40 per Mtok → ~$0.01 a curator turn). To
- * run at $0 instead, set LOUPE_CURATOR_MODEL/LOUPE_INTERPRET_MODEL to `:free`
+ * run at $0 instead, set CURIO_CURATOR_MODEL/CURIO_INTERPRET_MODEL to `:free`
  * models — see https://openrouter.ai/models?q=free.
  */
 
@@ -34,8 +34,8 @@ function modelList(env: string | undefined, fallback: string): string[] {
     .filter(Boolean);
 }
 
-export const CURATOR_MODELS = modelList(process.env.LOUPE_CURATOR_MODEL, DEFAULT_MODELS);
-export const INTERPRET_MODELS = modelList(process.env.LOUPE_INTERPRET_MODEL, DEFAULT_MODELS);
+export const CURATOR_MODELS = modelList(process.env.CURIO_CURATOR_MODEL, DEFAULT_MODELS);
+export const INTERPRET_MODELS = modelList(process.env.CURIO_INTERPRET_MODEL, DEFAULT_MODELS);
 
 export function isOpenRouter(): boolean {
   return LLM_BASE_URL.startsWith(OPENROUTER);
@@ -64,7 +64,7 @@ export function llmClient(): OpenAI {
     apiKey: key,
     baseURL: LLM_BASE_URL,
     // OpenRouter app attribution (ignored by other endpoints)
-    defaultHeaders: { "HTTP-Referer": "https://loupe-xi.vercel.app", "X-Title": "Loupe" },
+    defaultHeaders: { "HTTP-Referer": "https://loupe-xi.vercel.app", "X-Title": "Curio" },
     // a hung free endpoint must not eat the whole 60s function budget
     timeout: 45_000,
     maxRetries: 1,

@@ -46,7 +46,7 @@ async function fetchImage(artwork: Artwork): Promise<Uint8Array> {
   const res = await fetch(artwork.imageHires, {
     headers: {
       // Some IIIF servers (AIC) 403 requests without a browser-ish UA.
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curio/1.0",
       accept: "image/*,*/*;q=0.8",
     },
   });
@@ -101,7 +101,7 @@ function attributionMarkdown(artworks: Artwork[], downloadedAt: string): string 
 /** Build the browser download for a request — image for one work, zip for many. */
 export async function buildDownload(request: ExportRequest): Promise<DownloadResult> {
   const artworks = request.artworks ?? [];
-  const folderName = slugify(request.folderName ?? "") || "loupe-export";
+  const folderName = slugify(request.folderName ?? "") || "curio-export";
   if (artworks.length === 0) throw new Error("Nothing to export");
   const downloadedAt = new Date().toISOString();
 
