@@ -1,5 +1,6 @@
 import type { UIMessageStreamWriter } from "ai";
 import { z } from "zod";
+import { readAbout, readingText } from "@/lib/about";
 import { enabledSources, getArtworkById } from "@/lib/adapters";
 import { cachedSearch, recentArtwork } from "@/lib/search-cache";
 import { serverCanFetch } from "@/lib/source-egress";
@@ -8,21 +9,26 @@ import type { Artwork, SourceId } from "@/lib/types";
 import type {
   CurioUIMessage,
   ExhibitData,
+  RevisionData,
   StepData,
   StepItem,
 } from "@/lib/thread/types";
 
 /**
- * The curator's three tools, written once. Each executor does the work AND
- * narrates it: it writes `data-step` parts (and the `data-exhibit` part) into
- * the turn's UI stream as it goes, so the thread shows the same live steps
- * whichever engine is driving — the hosted AI SDK tool loop or the local
- * Claude Code session calling them over in-process MCP.
+ * The curator's five tools, written once. Each executor does the work AND
+ * narrates it: it writes `data-step` parts (and the `data-exhibit` or
+ * `data-revision` part) into the turn's UI stream as it goes, so the thread
+ * shows the same live steps whichever engine is driving — the hosted AI SDK
+ * tool loop or the local Claude Code session calling them over in-process MCP.
  */
 
 export const TOOL_SOURCE_IDS = ["aic", "cma", "met", "smk", "mia", "rijks", "harvard"] as const;
 export const VIEW_LIMIT = 8;
+export const READ_LIMIT = 4;
 const PREVIEW_ITEMS = 5;
+/** A comment is one to three short sentences (the prompt asks for under 60
+ *  words); past this it's cut at a sentence. */
+const COMMENT_MAX = 400;
 
 const SOURCE_LABELS: Record<SourceId, string> = {
   aic: "Art Institute of Chicago",
@@ -62,6 +68,17 @@ export interface MuseumContext {
   exhibitId?: string;
   /** present_selection already sent back ids it couldn't load (once a turn) */
   missingReported?: boolean;
+  /** the exhibit on the visitor's wall, if the wall is showing one: what
+   *  revise_exhibit edits (its data-part id and current state) */
+  wallExhibit?: { id: string; data: ExhibitData };
+  /** this turn's edit to it, once revise_exhibit has run */
+  revision?: RevisionData;
+  revisionId?: string;
+  /** searches run this turn */
+  searches: number;
+  /** the model's last word so far was prose, not a tool call: a turn that
+   *  ends this way answered in the thread (set by the route's stream filter) */
+  textAfterTool: boolean;
   /** the last data written for each step, to close any left running */
   steps: Map<string, StepData>;
   nextId: (prefix: string) => string;
@@ -81,6 +98,8 @@ export function createMuseumContext(
     signal: opts.signal,
     hosted: opts.hosted,
     pendingImages: [],
+    searches: 0,
+    textAfterTool: false,
     nextId: (prefix) => `${prefix}-${Date.now().toString(36)}-${++n}`,
   };
 }
@@ -155,6 +174,21 @@ export const viewInput = z.object({
     .describe('up to 8 artwork ids ("source:nativeId") from search_artworks results'),
 });
 
+export const readInput = z.object({
+  ids: z
+    .array(z.string())
+    .describe("up to 4 artwork ids from search results, attachments or the wall"),
+});
+
+const commentsInput = z
+  .array(
+    z.object({
+      id: z.string().describe("a work in the exhibit"),
+      comment: z.string().describe("one to three sentences on this one work, leading with the point"),
+    }),
+  )
+  .optional();
+
 export const exhibitInput = z.object({
   artworkIds: z
     .array(z.string())
@@ -165,9 +199,20 @@ export const exhibitInput = z.object({
   note: z
     .string()
     .describe("two or three sentences in your own voice: what the works share, and where to start"),
+  comments: commentsInput.describe(
+    "optional: a comment on each of the few works you want to point out specifically (usually 0-4 of them, never all by default)",
+  ),
   followUps: z
     .array(z.string())
     .describe("2-3 short refinements the visitor might ask for next, e.g. 'warmer', 'only prints'"),
+});
+
+export const reviseInput = z.object({
+  title: z.string().optional().describe("a new title, only if it should change"),
+  note: z.string().optional().describe("a new exhibit note, only if it should change"),
+  comments: commentsInput.describe(
+    "comments to add or rewrite on works already in the exhibit; an empty comment removes that work's comment",
+  ),
 });
 
 export const TOOL_DESCRIPTIONS = {
@@ -175,9 +220,43 @@ export const TOOL_DESCRIPTIONS = {
     "Search the museums' open-access collections (CC0 / public domain, with images). Returns compact rows: id, title, artist, date, source. No images: it can't tell you what anything looks like. Run a few variations before deciding.",
   view_artworks:
     "Look at the actual images of up to 8 works from your search results. Use it before choosing: you judge what you see, not titles.",
+  read_about:
+    "Read what the museums publish about up to 4 works: the museum's own label or catalogue text where it has one (the Art Institute of Chicago, Cleveland and Minneapolis often do; the Met never does), a few facts from the record, and a short note on each artist. Use it before you state history, stories, symbols or attributions.",
   present_selection:
-    "Curate the exhibit: put the works you chose (usually 6-12, or exactly the number asked for, all ones you have looked at) on the visitor's wall, with a title, a short note in your own voice, and 2-3 follow-up suggestions. Call exactly once, as the last thing you do in the turn.",
+    "Hang a new exhibit on the visitor's wall: the works you chose (usually 6-12, or exactly the number asked for, all ones you have looked at), a title, a short note in your own voice, optional comments on the few works you want to point out, and 2-3 follow-up suggestions. When you curate a new set, call it once, as the last thing you do in the turn.",
+  revise_exhibit:
+    "Edit the exhibit on the visitor's wall in place instead of hanging a new one: add, rewrite or remove comments on its works, or change its title or note. Use it when the visitor asks about or wants changes to what's already up and no works need to come or go.",
 } as const;
+
+/** Trim, collapse whitespace, and hold a comment to a few sentences. */
+function cleanComment(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= COMMENT_MAX) return t;
+  const cut = t.slice(0, COMMENT_MAX);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
+  return end > COMMENT_MAX * 0.4 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`;
+}
+
+/** Comments keyed by id, kept only for works in `ids` ("" kept when
+ *  `allowEmpty`, meaning remove). Returns the ids that weren't in it. */
+function commentMap(
+  input: z.infer<typeof commentsInput>,
+  ids: Set<string>,
+  allowEmpty: boolean,
+): { comments: Record<string, string>; stray: string[] } {
+  const comments: Record<string, string> = {};
+  const stray: string[] = [];
+  for (const c of Array.isArray(input) ? input : []) {
+    if (!c || typeof c.id !== "string") continue;
+    if (!ids.has(c.id)) {
+      stray.push(c.id);
+      continue;
+    }
+    const text = cleanComment(String(c.comment ?? ""));
+    if (text || allowEmpty) comments[c.id] = text;
+  }
+  return { comments, stray };
+}
 
 // — executors
 
@@ -191,6 +270,7 @@ export async function searchArtworks(
   ctx: MuseumContext,
 ): Promise<string> {
   if (ctx.exhibit) return TURN_OVER;
+  ctx.searches++;
   const id = ctx.nextId("step");
   const terms = [args.artist, args.q].filter(Boolean).join(" · ") || undefined;
   const base: StepData = {
@@ -338,6 +418,54 @@ export async function viewArtworks(
   return { text: lines.join("\n") || "nothing to view", images };
 }
 
+export async function readAboutWorks(
+  args: z.infer<typeof readInput>,
+  ctx: MuseumContext,
+): Promise<string> {
+  if (ctx.exhibit) return TURN_OVER;
+  const id = ctx.nextId("step");
+  const requested = Array.isArray(args.ids) ? args.ids : [];
+  const ids = requested.slice(0, READ_LIMIT);
+  const startedAt = Date.now();
+
+  const works = await Promise.all(ids.map((wid) => resolve(ctx, wid)));
+  const items: StepItem[] = works.map((a, i) =>
+    a
+      ? itemOf(a, "loading")
+      : { id: ids[i], title: "Unknown work", artist: "", thumb: "", state: "failed" as const },
+  );
+  let found = 0;
+  const write = (phase: StepData["phase"]) =>
+    writeStep(ctx, id, {
+      kind: "read",
+      phase,
+      startedAt,
+      endedAt: phase === "running" ? undefined : Date.now(),
+      count: ids.length,
+      found,
+      items: items.map((x) => ({ ...x })),
+    });
+  write("running");
+
+  // "seen" here means the museum had its own text on the work; the rest
+  // still get their artist note, but the thread shows them dimmed.
+  const texts = await Promise.all(
+    works.map(async (a, i) => {
+      if (!a) return `${ids[i]}: not found`;
+      const reading = await readAbout(a, ctx.signal);
+      items[i].state = reading.label ? "seen" : "failed";
+      if (reading.label) found++;
+      write("running");
+      return readingText(a, reading);
+    }),
+  );
+  write("done");
+
+  const capped =
+    requested.length > READ_LIMIT ? `(capped to the first ${READ_LIMIT} of ${requested.length} requested ids)\n\n` : "";
+  return `${capped}${texts.join("\n\n---\n\n")}\n\nWhen you lean on a museum's text, credit it in plain words, after the point rather than before it ("A fan print, the Minneapolis label notes, so..."). Never write about what a museum doesn't publish. Don't state what none of this, or your own eyes, supports.`;
+}
+
 export async function presentExhibit(
   args: z.infer<typeof exhibitInput>,
   ctx: MuseumContext,
@@ -358,11 +486,13 @@ export async function presentExhibit(
   }
   writeStep(ctx, id, { kind: "exhibit", phase: "running", startedAt });
   const resolved = found.filter((a): a is Artwork => !!a);
+  const { comments } = commentMap(args.comments, new Set(resolved.map((a) => a.id)), false);
   const exhibit: ExhibitData = {
     title: args.title?.trim() || "An exhibit",
     note: args.note?.trim() ?? "",
     artworks: resolved,
     followUps: (args.followUps ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 3),
+    comments: Object.keys(comments).length ? comments : undefined,
   };
   // One exhibit per turn. The local engine can't be stopped at this tool the
   // way the hosted loop is (hasToolCall), and a model occasionally calls it
@@ -381,6 +511,70 @@ export async function presentExhibit(
   return again
     ? `replaced the exhibit with these ${resolved.length} works. The turn is over: stop here and write nothing more.`
     : `curated an exhibit of ${resolved.length} works for the visitor. The turn is over: stop here and write nothing more.`;
+}
+
+export async function reviseExhibit(
+  args: z.infer<typeof reviseInput>,
+  ctx: MuseumContext,
+): Promise<string> {
+  if (ctx.exhibit) return TURN_OVER;
+  const target = ctx.wallExhibit;
+  if (!target) {
+    return "There's no exhibit of yours on the visitor's wall to revise (it's showing a search, a collection, or nothing). Answer in the thread, or hang a new exhibit with present_selection.";
+  }
+  const works = new Map(target.data.artworks.map((a) => [a.id, a]));
+  const { comments, stray } = commentMap(args.comments, new Set(works.keys()), true);
+  const title = args.title?.trim();
+  const note = args.note?.trim();
+  const changed = Object.keys(comments).length > 0 || Boolean(title) || Boolean(note);
+  if (!changed) {
+    return stray.length
+      ? `Nothing changed: ${stray.join(", ")} ${stray.length === 1 ? "isn't" : "aren't"} in the exhibit on the wall. Its works are: ${[...works.keys()].join(", ")}.`
+      : "Nothing changed: give comments, a title or a note.";
+  }
+
+  // Apply to the running state, so a second call this turn builds on it.
+  const nextComments = { ...target.data.comments };
+  for (const [wid, text] of Object.entries(comments)) {
+    if (text) nextComments[wid] = text;
+    else delete nextComments[wid];
+  }
+  target.data = {
+    ...target.data,
+    title: title || target.data.title,
+    note: note || target.data.note,
+    comments: Object.keys(nextComments).length ? nextComments : undefined,
+  };
+
+  // The turn's whole edit, as one part rewritten in place.
+  const prev = ctx.revision;
+  const allComments = { ...prev?.comments, ...comments };
+  ctx.revision = {
+    target: target.id,
+    title: target.data.title,
+    retitled: Boolean(title) || prev?.retitled,
+    note: note || prev?.note,
+    comments: allComments,
+    works: Object.keys(allComments).flatMap((wid) => {
+      const a = works.get(wid);
+      return a ? [itemOf(a, "seen")] : [];
+    }),
+  };
+  ctx.revisionId ??= ctx.nextId("revision");
+  const stepId = ctx.nextId("step");
+  const now = Date.now();
+  writeStep(ctx, stepId, { kind: "revise", phase: "done", startedAt: now, endedAt: now, count: Object.keys(comments).length });
+  ctx.writer.write({ type: "data-revision", id: ctx.revisionId, data: ctx.revision });
+
+  const set = Object.values(comments).filter(Boolean).length;
+  const did = [
+    set > 0 && `set comments on ${set} ${set === 1 ? "work" : "works"}`,
+    Object.values(comments).some((c) => !c) && "removed a comment",
+    title && "retitled it",
+    note && "rewrote the note",
+  ].filter(Boolean);
+  const strayNote = stray.length ? ` Skipped ${stray.join(", ")}: not in the exhibit.` : "";
+  return `Revised the exhibit on the wall: ${did.join(", ")}.${strayNote} The visitor sees the changes on the wall and in the thread. Add at most one short sentence in the thread, or nothing.`;
 }
 
 /**

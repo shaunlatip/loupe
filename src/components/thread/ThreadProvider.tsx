@@ -20,6 +20,7 @@ import type {
   Attachment,
   CurioUIMessage,
   ExhibitData,
+  RevisionData,
   Route,
   SearchEntryData,
   StepData,
@@ -28,6 +29,7 @@ import type {
 import { useSteadyText } from "./Live";
 import {
   deriveStatus,
+  doneTitle,
   exhibitOf,
   isWorking,
   statusText,
@@ -52,6 +54,8 @@ export type RouteOverride = Route | null;
 export interface ThreadHandlers {
   /** an exhibit arrived (streamed, replayed, or re-shown from the thread) */
   onExhibit: (exhibit: ExhibitData) => void;
+  /** the exhibit on the wall was revised in place (title, note, comments) */
+  onExhibitRevised: (exhibit: ExhibitData) => void;
   /** run a plain search on the wall; resolves with a summary for the thread */
   runLookup: (q: string) => Promise<SearchEntryData | null>;
   /** read a description into facets and search; resolves likewise */
@@ -88,6 +92,10 @@ interface ThreadContextValue {
   retry: () => void;
   runFresh: (prompt: string) => void;
   showExhibit: (messageId: string) => void;
+  /** put the exhibit with this data-part id back on the wall */
+  showExhibitPart: (partId: string) => void;
+  /** an exhibit in the thread, by its data-part id (revisions applied) */
+  exhibitByPart: (partId: string) => ExhibitData | undefined;
   runExample: (slug: string) => void;
   /** the done state has been looked at (clears the header's "unseen" pill) */
   unseen: boolean;
@@ -145,14 +153,38 @@ export function exhibitPartIdOf(m: CurioUIMessage): string | undefined {
 }
 
 /** What goes up with each request: no step parts, no tool parts. The server
- *  rebuilds history from text, exhibits, searches and metadata alone. */
+ *  rebuilds history from text, exhibits, revisions, searches and metadata. */
 function slim(messages: CurioUIMessage[]): CurioUIMessage[] {
   return messages.map((m) => ({
     ...m,
     parts: m.parts.filter(
-      (p) => p.type === "text" || p.type === "data-exhibit" || p.type === "data-search",
+      (p) =>
+        p.type === "text" || p.type === "data-exhibit" || p.type === "data-revision" || p.type === "data-search",
     ),
   }));
+}
+
+/** An exhibit with a revision applied. Revisions carry the turn's whole
+ *  edit, so applying one again changes nothing. */
+function applyRevision(e: ExhibitData, r: RevisionData): ExhibitData {
+  const comments = { ...e.comments };
+  for (const [id, text] of Object.entries(r.comments)) {
+    if (text) comments[id] = text;
+    else delete comments[id];
+  }
+  return {
+    ...e,
+    title: r.title || e.title,
+    note: r.note || e.note,
+    comments: Object.keys(comments).length ? comments : undefined,
+  };
+}
+
+function findExhibitPart(messages: CurioUIMessage[], partId: string): ExhibitData | undefined {
+  for (const m of messages) {
+    for (const p of m.parts) if (p.type === "data-exhibit" && p.id === partId) return p.data;
+  }
+  return undefined;
 }
 
 function parseError(err: Error | undefined): string | undefined {
@@ -179,19 +211,25 @@ export default function ThreadProvider({
   handlersRef.current = handlers;
   const wallRef = useRef(wall);
   wallRef.current = wall;
+  // The exhibit last put on the wall. It only counts while the wall is
+  // still showing an exhibit (a search or a collection replaces it).
+  const [lastExhibitId, setWallExhibitId] = useState<string>();
+  const wallExhibitId = wall.exhibit ? lastExhibitId : undefined;
+  const wallExhibitRef = useRef(wallExhibitId);
+  wallExhibitRef.current = wallExhibitId;
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<CurioUIMessage>({
         api: "/api/agent",
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages: slim(messages), wall: wallRef.current },
+          body: { messages: slim(messages), wall: { ...wallRef.current, exhibitId: wallExhibitRef.current } },
         }),
       }),
     [],
   );
 
-  const [wallExhibitId, setWallExhibitId] = useState<string>();
+  const messagesRef = useRef<CurioUIMessage[]>([]);
   const chat = useChat<CurioUIMessage>({
     transport,
     throttle: 50,
@@ -199,10 +237,31 @@ export default function ThreadProvider({
       if (part.type === "data-exhibit") {
         handlersRef.current.onExhibit(part.data);
         setWallExhibitId(part.id);
+      } else if (part.type === "data-revision") {
+        // Edit the exhibit it targets where it sits in the thread, so the
+        // card, the wall and the next turn's history all read the new text.
+        const r = part.data;
+        const target = findExhibitPart(messagesRef.current, r.target);
+        if (!target) return;
+        const revised = applyRevision(target, r);
+        chat.setMessages((ms) =>
+          ms.map((m) =>
+            m.parts.some((p) => p.type === "data-exhibit" && p.id === r.target)
+              ? {
+                  ...m,
+                  parts: m.parts.map((p) =>
+                    p.type === "data-exhibit" && p.id === r.target ? { ...p, data: revised } : p,
+                  ),
+                }
+              : m,
+          ),
+        );
+        if (wallExhibitRef.current === r.target) handlersRef.current.onExhibitRevised(revised);
       }
     },
   });
   const { messages, status: chatStatus, sendMessage, setMessages, stop: stopChat, regenerate, error } = chat;
+  messagesRef.current = messages;
 
   const [stopped, setStopped] = useState(false);
   const [pendingSince, setPendingSince] = useState<number>();
@@ -402,6 +461,17 @@ export default function ThreadProvider({
     [messages],
   );
 
+  const exhibitByPart = useCallback((partId: string) => findExhibitPart(messages, partId), [messages]);
+  const showExhibitPart = useCallback(
+    (partId: string) => {
+      const exhibit = findExhibitPart(messages, partId);
+      if (!exhibit) return;
+      handlersRef.current.onExhibit(exhibit);
+      setWallExhibitId(partId);
+    },
+    [messages],
+  );
+
   /**
    * Play a recorded run (public/examples/<slug>.json) through the same
    * components a live turn uses, at about a third of its real pace (7–10s):
@@ -551,7 +621,7 @@ export default function ThreadProvider({
   useEffect(() => {
     const base = "Curio";
     if (isWorking(curator)) document.title = `${curatorText} · ${base}`;
-    else if (unseen && curator.exhibit) document.title = `✓ ${curator.exhibit.title} · ${base}`;
+    else if (unseen) document.title = `✓ ${doneTitle(curator)} · ${base}`;
     else document.title = base;
   }, [curator, curatorText, unseen]);
 
@@ -578,6 +648,8 @@ export default function ThreadProvider({
       retry,
       runFresh,
       showExhibit,
+      showExhibitPart,
+      exhibitByPart,
       runExample,
       unseen,
       focusComposer,
@@ -606,6 +678,8 @@ export default function ThreadProvider({
       retry,
       runFresh,
       showExhibit,
+      showExhibitPart,
+      exhibitByPart,
       runExample,
       unseen,
       focusComposer,

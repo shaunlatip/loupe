@@ -150,8 +150,8 @@ function EmptyThread({ onPick }: { onPick: (slug: string) => void }) {
   return (
     <div className="animate-fade flex flex-col gap-5 pt-2">
       <p className="pretty text-[15px] leading-snug">
-        Ask for an artist, a feeling, or something stranger. Curio searches five museums, looks at every
-        candidate, and curates a small exhibit for you.
+        Ask for an artist, a feeling, or something stranger, or ask about any work you see. Curio searches
+        five museums, looks at every candidate, reads what the museums say, and curates a small exhibit for you.
       </p>
       <div className="flex flex-col gap-1.5">
         <span className="caption">Try</span>
@@ -173,7 +173,12 @@ function EmptyThread({ onPick }: { onPick: (slug: string) => void }) {
   );
 }
 
-export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) => void }) {
+export default function Thread({
+  onOpenArtwork,
+}: {
+  /** open a work in the detail view, with Curio's comment on it if it has one */
+  onOpenArtwork: (a: Artwork, comment?: string) => void;
+}) {
   const {
     messages,
     chatStatus,
@@ -186,10 +191,20 @@ export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) 
     retry,
     submit,
     showExhibit,
+    showExhibitPart,
+    exhibitByPart,
     wallExhibitId,
     runExample,
     runFresh,
   } = useThread();
+  const openIn = useCallback(
+    (partId: string, workId: string) => {
+      const exhibit = exhibitByPart(partId);
+      const a = exhibit?.artworks.find((x) => x.id === workId);
+      if (a) onOpenArtwork(a, exhibit?.comments?.[workId]);
+    },
+    [exhibitByPart, onOpenArtwork],
+  );
   const busy = chatStatus === "submitted" || chatStatus === "streaming";
   const panelRef = useRef<HTMLElement>(null);
 
@@ -290,7 +305,9 @@ export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) 
                     onWallExhibitId={wallExhibitId}
                     exhibitPartId={exhibitPartIdOf(m)}
                     onShow={() => showExhibit(m.id)}
+                    onShowPart={showExhibitPart}
                     onOpen={onOpenArtwork}
+                    onOpenIn={openIn}
                     onFollowUp={followUp}
                     onRunFresh={
                       m.metadata?.recorded

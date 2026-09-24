@@ -24,8 +24,12 @@ export function thinkingPhrases(s: CuratorStatus, waitingMs: number): string[] {
         "Deciding what makes the exhibit",
         s.lookedAt > 0 ? `Weighing ${s.lookedAt} candidates` : "Weighing the candidates",
       ];
+    case "read":
+      return ["Checking the label against the picture", "Putting it in my own words", "Deciding what to point out"];
     case "curate":
       return ["Arranging the exhibit", "Writing the exhibit text"];
+    case "revise":
+      return ["Checking the wall", "Wrapping up"];
   }
 }
 

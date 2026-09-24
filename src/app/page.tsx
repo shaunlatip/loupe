@@ -46,6 +46,8 @@ interface ResultState {
   heading?: string;
   /** Curio's note under the title */
   note?: string;
+  /** Curio's comments on individual works, by id */
+  comments?: Record<string, string>;
 }
 
 interface Interpretation {
@@ -347,7 +349,15 @@ export default function Home() {
       origin: "curio",
       heading: exhibit.title,
       note: exhibit.note,
+      comments: exhibit.comments,
     });
+  }, []);
+  // A revision edits the words on the wall and leaves the works, and
+  // whatever sort or filter the visitor has on them, alone.
+  const onExhibitRevised = useCallback((exhibit: ExhibitData) => {
+    setResults((r) =>
+      r.origin === "curio" ? { ...r, heading: exhibit.title, note: exhibit.note, comments: exhibit.comments } : r,
+    );
   }, []);
   const onTurnStart = useCallback(() => {
     setCurating(true);
@@ -523,6 +533,7 @@ export default function Home() {
   const wall = useMemo<WallContext>(
     () => ({
       heading: results.heading,
+      exhibit: results.origin === "curio",
       count: displayArtworks.length,
       works: displayArtworks.slice(0, 24).map((a) => ({
         id: a.id,
@@ -531,18 +542,30 @@ export default function Home() {
         date: a.date,
       })),
     }),
-    [results.heading, displayArtworks],
+    [results.heading, results.origin, displayArtworks],
   );
 
   const handlers = useMemo<ThreadHandlers>(
-    () => ({ onExhibit, runLookup, runDescribe, onTurnStart, onTurnEnd }),
-    [onExhibit, runLookup, runDescribe, onTurnStart, onTurnEnd],
+    () => ({ onExhibit, onExhibitRevised, runLookup, runDescribe, onTurnStart, onTurnEnd }),
+    [onExhibit, onExhibitRevised, runLookup, runDescribe, onTurnStart, onTurnEnd],
   );
 
+  // A work opened from the thread may belong to an exhibit that isn't on the
+  // wall; its comment rides along so the detail view can still show it.
+  const [threadComment, setThreadComment] = useState<{ id: string; text: string }>();
   const onOpenCard = useCallback((a: Artwork) => {
     setSaveOpen(false);
+    setThreadComment(undefined);
     setOpen(a);
   }, []);
+  const onOpenFromThread = useCallback((a: Artwork, comment?: string) => {
+    setSaveOpen(false);
+    setThreadComment(comment ? { id: a.id, text: comment } : undefined);
+    setOpen(a);
+  }, []);
+  const openComment = open
+    ? (results.comments?.[open.id] ?? (threadComment?.id === open.id ? threadComment.text : undefined))
+    : undefined;
 
   // The wall label's right end: tools that act on the works shown.
   const wallTools = useMemo(
@@ -644,6 +667,7 @@ export default function Home() {
                 errors={results.errors}
                 heading={results.heading}
                 note={results.note}
+                comments={results.comments}
                 loading={loading}
                 facts={facts}
                 aside={wallTools}
@@ -678,6 +702,7 @@ export default function Home() {
       {open && (
         <DetailPanel
           artwork={open}
+          comment={openComment}
           onClose={() => {
             setOpen(null);
             setSaveOpen(false);
@@ -715,7 +740,7 @@ export default function Home() {
       )}
 
       <ScrollTopButton enabled={showWall && displayArtworks.length > 0 && !open} />
-      <Thread onOpenArtwork={onOpenCard} />
+      <Thread onOpenArtwork={onOpenFromThread} />
     </ThreadProvider>
   );
 }
@@ -857,6 +882,7 @@ function NoResultsHint({
 /** The detail view with its actions, which need the thread (Add to chat). */
 function DetailPanel({
   artwork,
+  comment,
   onClose,
   onPrev,
   onNext,
@@ -874,6 +900,7 @@ function DetailPanel({
   onDismiss,
 }: {
   artwork: Artwork;
+  comment?: string;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -900,6 +927,7 @@ function DetailPanel({
   return (
     <DetailView
       artwork={artwork}
+      comment={comment}
       onClose={onClose}
       onPrev={onPrev}
       onNext={onNext}

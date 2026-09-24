@@ -22,13 +22,14 @@ export default function ExhibitCard({
   exhibit: ExhibitData;
   onWall: boolean;
   onShow: () => void;
-  onOpen: (a: Artwork) => void;
+  onOpen: (a: Artwork, comment?: string) => void;
   onFollowUp: (text: string) => void;
   recorded?: boolean;
   onRunFresh?: () => void;
   busy: boolean;
 }) {
   const shown = exhibit.artworks.slice(0, 8);
+  const comments = exhibit.comments ?? {};
   const more = exhibit.artworks.length - shown.length;
 
   return (
@@ -56,8 +57,8 @@ export default function ExhibitCard({
           <button
             key={a.id}
             type="button"
-            onClick={() => onOpen(a)}
-            title={`${a.title}, ${a.artist}`}
+            onClick={() => onOpen(a, comments[a.id])}
+            title={`${a.title}, ${a.artist}${comments[a.id] ? `\n\n${comments[a.id]}` : ""}`}
             aria-label={`Open ${a.title}`}
             className="press-none animate-fade group/thumb relative block h-12 min-w-0 flex-1 overflow-hidden bg-wash"
             style={{ ["--stagger" as string]: `${i * 40}ms` }}
@@ -74,6 +75,8 @@ export default function ExhibitCard({
               aria-hidden
               className="pointer-events-none absolute inset-0 border-2 border-ink opacity-0 transition-opacity duration-150 group-hover/thumb:opacity-100"
             />
+            {/* Curio has a word on this one: the same accent as its comment on the wall */}
+            {comments[a.id] && <span aria-hidden className="absolute bottom-0 left-0 h-1.5 w-1.5 bg-accent" />}
           </button>
         ))}
         {more > 0 && (

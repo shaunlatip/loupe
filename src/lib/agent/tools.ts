@@ -4,6 +4,10 @@ import {
   TOOL_DESCRIPTIONS,
   exhibitInput,
   presentExhibit,
+  readAboutWorks,
+  readInput,
+  reviseExhibit,
+  reviseInput,
   searchArtworks,
   searchInput,
   viewArtworks,
@@ -12,7 +16,7 @@ import {
 } from "@/lib/agent/museum";
 
 /**
- * The same three executors (museum.ts), exposed two ways.
+ * The same five executors (museum.ts), exposed two ways.
  */
 
 /** Hosted engine: AI SDK tools. view_artworks queues its thumbnails on the
@@ -36,10 +40,20 @@ export function museumTools(ctx: MuseumContext) {
           : text;
       },
     }),
+    read_about: tool({
+      description: TOOL_DESCRIPTIONS.read_about,
+      inputSchema: readInput,
+      execute: (args) => readAboutWorks(args, ctx),
+    }),
     present_selection: tool({
       description: TOOL_DESCRIPTIONS.present_selection,
       inputSchema: exhibitInput,
       execute: (args) => presentExhibit(args, ctx),
+    }),
+    revise_exhibit: tool({
+      description: TOOL_DESCRIPTIONS.revise_exhibit,
+      inputSchema: reviseInput,
+      execute: (args) => reviseExhibit(args, ctx),
     }),
   };
 }
@@ -47,7 +61,9 @@ export function museumTools(ctx: MuseumContext) {
 export const MCP_TOOL_NAMES = [
   "mcp__museum__search_artworks",
   "mcp__museum__view_artworks",
+  "mcp__museum__read_about",
   "mcp__museum__present_selection",
+  "mcp__museum__revise_exhibit",
 ];
 
 /** Local engine: an in-process MCP server for the Claude Code session. Built
@@ -78,6 +94,9 @@ export function museumMcpServer(ctx: MuseumContext) {
           ],
         };
       }),
+      sdkTool("read_about", TOOL_DESCRIPTIONS.read_about, readInput.shape, async (args) => ({
+        content: [{ type: "text" as const, text: await readAboutWorks(args, ctx) }],
+      })),
       sdkTool(
         "present_selection",
         TOOL_DESCRIPTIONS.present_selection,
@@ -86,6 +105,9 @@ export function museumMcpServer(ctx: MuseumContext) {
           content: [{ type: "text" as const, text: await presentExhibit(args, ctx) }],
         }),
       ),
+      sdkTool("revise_exhibit", TOOL_DESCRIPTIONS.revise_exhibit, reviseInput.shape, async (args) => ({
+        content: [{ type: "text" as const, text: await reviseExhibit(args, ctx) }],
+      })),
     ],
   });
 }

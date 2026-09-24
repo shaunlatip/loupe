@@ -112,6 +112,7 @@ function ResultGrid({
   errors,
   heading,
   note,
+  comments,
   loading = false,
   emptyHint,
   facts,
@@ -125,6 +126,8 @@ function ResultGrid({
   heading?: string;
   /** curator's note, or any secondary line under the heading */
   note?: string;
+  /** Curio's comments on individual works, by id */
+  comments?: Record<string, string>;
   /** a fetch is in flight — an empty grid means "searching", not "no results" */
   loading?: boolean;
   /** rendered inside the no-results state (suggested next moves) */
@@ -215,7 +218,7 @@ function ResultGrid({
           {columns.map((col, c) => (
             <div key={c} className="flex min-w-0 flex-1 flex-col">
               {col.map(({ a, i }) => (
-                <ArtworkCard key={a.id} artwork={a} index={i} onOpen={onOpen} />
+                <ArtworkCard key={a.id} artwork={a} index={i} comment={comments?.[a.id]} onOpen={onOpen} />
               ))}
             </div>
           ))}

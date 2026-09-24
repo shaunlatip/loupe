@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
 import { isMuseumImageUrl } from "@/lib/image-hosts";
 import type { Artwork, SourceId } from "@/lib/types";
-import type { Attachment, CurioUIMessage, WallContext } from "@/lib/thread/types";
+import type { Attachment, CurioUIMessage, ExhibitData, WallContext } from "@/lib/thread/types";
 
 /**
  * The conversation as the model sees it: plain text, engine-agnostic.
@@ -35,7 +35,14 @@ export function wallLine(wall: WallContext | undefined): string | undefined {
     .map((w) => `${w.id} · ${w.title} · ${w.artist}${w.date ? ` · ${w.date}` : ""}`)
     .join("; ");
   const more = wall.count > WALL_LIMIT ? ` (first ${WALL_LIMIT} of ${wall.count})` : "";
-  return `[On the wall now: "${wall.heading ?? "untitled"}", ${wall.count} works${more}: ${works}]`;
+  const what = wall.exhibit ? `your exhibit "${wall.heading ?? "untitled"}"` : `"${wall.heading ?? "untitled"}"`;
+  return `[On the wall now: ${what}, ${wall.count} works${more}: ${works}]`;
+}
+
+function commentsLine(comments: Record<string, string> | undefined): string {
+  const entries = Object.entries(comments ?? {});
+  if (!entries.length) return "";
+  return ` Comments: ${entries.map(([id, c]) => (c ? `${id}: ${c}` : `${id}: (removed)`)).join(" | ")}.`;
 }
 
 function userText(m: CurioUIMessage): string {
@@ -59,7 +66,12 @@ function assistantText(m: CurioUIMessage): string {
     } else if (p.type === "data-exhibit") {
       const d = p.data;
       const works = d.artworks.map((a) => `${a.id} · ${a.title} · ${a.artist}`).join("; ");
-      out.push(`[Exhibit curated: "${d.title}". Works: ${works}. Note: ${d.note}]`);
+      out.push(`[Exhibit curated: "${d.title}". Works: ${works}. Note: ${d.note}${commentsLine(d.comments)}]`);
+    } else if (p.type === "data-revision") {
+      const d = p.data;
+      out.push(
+        `[Revised the exhibit on the wall, now "${d.title}".${d.note ? ` New note: ${d.note}` : ""}${commentsLine(d.comments)}]`,
+      );
     }
   }
   return out.join("\n\n");
@@ -127,6 +139,44 @@ export function exhibitArtworks(messages: CurioUIMessage[]): Artwork[] {
     }
   }
   return out;
+}
+
+/**
+ * The exhibit on the wall, found by its data-part id among the thread's
+ * exhibits (as the browser holds it, revisions applied), rebuilt from
+ * validated records: what revise_exhibit edits.
+ */
+export function wallExhibitOf(
+  messages: CurioUIMessage[],
+  partId: string | undefined,
+): { id: string; data: ExhibitData } | undefined {
+  if (!partId) return undefined;
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    for (const p of m.parts) {
+      if (p.type !== "data-exhibit" || p.id !== partId || !Array.isArray(p.data?.artworks)) continue;
+      const artworks = p.data.artworks
+        .slice(0, 40)
+        .map(artworkFromClient)
+        .filter((a): a is Artwork => !!a);
+      const ids = new Set(artworks.map((a) => a.id));
+      const comments: Record<string, string> = {};
+      for (const [id, c] of Object.entries(p.data.comments ?? {})) {
+        if (ids.has(id) && typeof c === "string" && c) comments[id] = c.slice(0, 600);
+      }
+      return {
+        id: partId,
+        data: {
+          title: str(p.data.title, 200) ?? "An exhibit",
+          note: str(p.data.note, 2000) ?? "",
+          artworks,
+          followUps: [],
+          comments: Object.keys(comments).length ? comments : undefined,
+        },
+      };
+    }
+  }
+  return undefined;
 }
 
 /** Validated artwork ids attached to a message (the route looks them up). */

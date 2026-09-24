@@ -77,6 +77,11 @@ const LABELS = new Set(
 const CURATE =
   /\b(pick|choose|select|curate|best|most|least|favou?rite|rank|ranking|top \d+|winner|runners? ?up|compare|versus|vs|sequence|in order|order them|date order|from (dawn|morning|day|spring|light) to|like [a-z' ]+ but|but (outside|outdoors|indoors|at night|brighter|darker|warmer|cooler|happier|sadder)|for (a|an|my|our|the) |why|which|exhibit|a set|set of|series|a pair|trio|one of each|exactly|with opinions|through history|across (the )?centuries|that (feel|look|go)|(two|three|four|five|six|seven|eight|nine|ten|twelve|\d+) (works|paintings|prints|pictures|pieces|images|drawings))\b/;
 
+/** Asking Curio something ("who was Hammershøi", "tell me about these"):
+ *  a question to answer, never a keyword search, even without a "?". */
+const ASK =
+  /^(tell me|tell us|teach me|explain|help me (understand|see)|talk me through|walk me through|what|what's|whats|who|who's|whos|why|how|when|where|which|is (it|this|that|there)|are (these|those|they|there)|was|were|did|does|do (you|they)|can you|could you|would you)\b/;
+
 /** Talking about what's already on the wall. */
 const REFINE =
   /^(warmer|cooler|colder|darker|lighter|brighter|calmer|quieter|busier|more|less|fewer|only|just|without|no |not |swap|remove|drop|keep|replace|instead|again|another|different|these|this|those|narrow|widen|same but|similar|and |but )/;
@@ -100,7 +105,9 @@ export function classifyRules(input: string, ctx: RouteContext): RouteDecision {
     return decide(ctx.hasWall && REFINE.test(q) ? "refine" : "curate", 0.85, "has attachments");
   }
   if (ctx.hasWall && REFINE.test(q) && words <= 12) return decide("refine", 0.8, "refers to the wall");
-  if (/\?\s*$/.test(input.trim())) return decide("curate", 0.75, "a question");
+  if (/\?\s*$/.test(input.trim()) || (ASK.test(q) && words >= 2)) {
+    return decide("curate", 0.75, "a question");
+  }
   if (CURATE.test(q)) return decide("curate", 0.8, "asks for judgment");
   if (words >= 7) return decide("curate", 0.65, "a long brief");
 

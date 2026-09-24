@@ -18,7 +18,7 @@ import {
   hostedModel,
   modelLabel,
 } from "@/lib/ai/models";
-import { attachedArtworkIds, exhibitArtworks, toModelMessages } from "@/lib/agent/history";
+import { attachedArtworkIds, exhibitArtworks, toModelMessages, wallExhibitOf } from "@/lib/agent/history";
 import {
   closeOpenSteps,
   createMuseumContext,
@@ -110,6 +110,8 @@ export async function POST(req: NextRequest) {
 
       // a fresh run of a brief ("Run it fresh") doesn't build on the wall
       const wall = last.metadata?.fresh ? undefined : body.wall;
+      // the exhibit on the wall, which revise_exhibit edits in place
+      if (wall?.exhibit) ctx.wallExhibit = wallExhibitOf(messages, wall.exhibitId);
       const meta =
         engine === "claude"
           ? await runLocal(messages, wall, ctx, writer)
@@ -117,7 +119,10 @@ export async function POST(req: NextRequest) {
 
       if (req.signal.aborted) return;
       closeOpenSteps(ctx);
-      if (!ctx.exhibit) {
+      // A turn can end three ways: a new exhibit, a revision of the one on
+      // the wall, or an answer in the thread (prose after its last tool
+      // call). Only a turn cut off mid-work gets the fallback.
+      if (!ctx.exhibit && !ctx.revision && !ctx.textAfterTool) {
         const fallback = fallbackExhibit(ctx);
         if (fallback) {
           writer.write({ type: "data-exhibit", id: ctx.nextId("exhibit"), data: fallback });
@@ -139,15 +144,30 @@ export async function POST(req: NextRequest) {
 type Writer = Parameters<Parameters<typeof createUIMessageStream<CurioUIMessage>>[0]["execute"]>[0]["writer"];
 
 /**
+ * Notes whether the model's latest word is prose or a tool call, so the route
+ * can tell a turn that answered in the thread from one that was cut off.
+ */
+function noteLastWord(chunk: { type: string; delta?: unknown }, ctx: MuseumContext) {
+  if (chunk.type.startsWith("tool-")) ctx.textAfterTool = false;
+  else if (chunk.type === "text-delta" && typeof chunk.delta === "string" && chunk.delta.trim()) {
+    ctx.textAfterTool = true;
+  }
+}
+
+/**
  * Drop the raw tool-call chunks before they reach the browser. The thread
  * renders the executors' own data-step parts instead, and the raw outputs are
  * heavy (search rows as JSON; on the local engine, view_artworks' base64
  * thumbnails), which would also ride back up with every later request.
  */
-function withoutToolChunks<T extends { type: string }>(stream: ReadableStream<T>): ReadableStream<T> {
+function withoutToolChunks<T extends { type: string }>(
+  stream: ReadableStream<T>,
+  ctx: MuseumContext,
+): ReadableStream<T> {
   return stream.pipeThrough(
     new TransformStream<T, T>({
       transform(chunk, controller) {
+        noteLastWord(chunk, ctx);
         if (!chunk.type.startsWith("tool-")) controller.enqueue(chunk);
       },
     }),
@@ -176,7 +196,10 @@ async function runHosted(
     // named works that couldn't load is handed back for another try).
     stopWhen: [isStepCount(MAX_STEPS), () => Boolean(ctx.exhibit)],
     prepareStep: ({ stepNumber, messages: stepMessages }) => {
-      const out: { messages?: ModelMessage[]; toolChoice?: { type: "tool"; toolName: "present_selection" } } = {};
+      const out: {
+        messages?: ModelMessage[];
+        toolChoice?: { type: "tool"; toolName: "present_selection" } | "none";
+      } = {};
       // Thumbnails from view_artworks reach the model as a user message
       // (OpenAI-format tool messages are text-only). v7 carries a messages
       // override forward, so each batch is appended exactly once.
@@ -196,9 +219,16 @@ async function runHosted(
           },
         ];
       }
-      // Always land an exhibit inside the platform's time limit.
-      if (!ctx.exhibit && (Date.now() - startedAt > HOSTED_BUDGET_MS || stepNumber >= MAX_STEPS - 1)) {
-        out.toolChoice = { type: "tool", toolName: "present_selection" };
+      // Always land something inside the platform's time limit: a turn that
+      // went searching and looking hangs what it found; one working with
+      // what's already up (or just talking) wraps up in words.
+      if (
+        !ctx.exhibit &&
+        !ctx.revision &&
+        (Date.now() - startedAt > HOSTED_BUDGET_MS || stepNumber >= MAX_STEPS - 1)
+      ) {
+        out.toolChoice =
+          ctx.searches > 0 && ctx.viewed.size > 0 ? { type: "tool", toolName: "present_selection" } : "none";
       }
       return out;
     },
@@ -208,6 +238,7 @@ async function runHosted(
   writer.merge(
     withoutToolChunks(
       result.toUIMessageStream({ sendStart: false, sendFinish: false, sendReasoning: false }),
+      ctx,
     ),
   );
   const response = await result.response;
@@ -299,6 +330,7 @@ function endAtExhibit<T extends { type: string; id?: string }>(
     new TransformStream<T, T>({
       transform(chunk, controller) {
         if (ended) return;
+        noteLastWord(chunk, ctx);
         if (chunk.type === "tool-output-available" && ctx.exhibit) {
           ended = true;
           for (const id of open) controller.enqueue({ type: "text-end", id } as unknown as T);

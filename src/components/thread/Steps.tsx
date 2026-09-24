@@ -41,6 +41,36 @@ function PreviewStrip({ items }: { items: StepItem[] }) {
   );
 }
 
+/** The works Curio is reading about, small, each settling as its text comes
+ *  back: full strength where the museum publishes its own text on it, dimmed
+ *  where it doesn't (Curio still gets the artist). */
+function ReadStrip({ items }: { items: StepItem[] }) {
+  if (!items.length) return null;
+  return (
+    <span className="ml-1 inline-flex gap-[3px] align-middle">
+      {items.map((it) => (
+        <span
+          key={it.id}
+          title={`${it.title}, ${it.artist}${
+            it.state === "seen" ? " · the museum's own text" : it.state === "failed" ? " · no museum text" : ""
+          }`}
+          className={`block h-5 w-5 overflow-hidden ${it.state === "loading" ? "skeleton" : "bg-wash"}`}
+        >
+          {it.thumb && it.state !== "loading" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={it.thumb}
+              alt=""
+              referrerPolicy="no-referrer"
+              className={`animate-fade h-full w-full object-cover ${it.state === "failed" ? "opacity-40 grayscale" : ""}`}
+            />
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /**
  * The works Curio is looking at, one frame each, filling in as each image
  * lands. While it weighs them, a hairline steps across the strip (it says
@@ -121,7 +151,8 @@ export function StepRow({
   const running = step.phase === "running";
   // a step that errored never got to "Searched …": keep the in-progress form
   const label = stepLabel(step, running || step.phase === "error");
-  if (step.kind === "exhibit" && step.phase === "done") return null; // the exhibit card stands in
+  // the exhibit card, or the revision card, stands in
+  if ((step.kind === "exhibit" || step.kind === "revise") && step.phase === "done") return null;
 
   return (
     <div className="flex items-start gap-2">
@@ -154,6 +185,22 @@ export function StepRow({
               {step.phase === "done" && step.items && <PreviewStrip items={step.items} />}
             </>
           )}
+          {step.kind === "read" && (
+            <>
+              {step.phase === "done" && (
+                <Chip title="How many of these the museum publishes its own text on">
+                  {!step.found
+                    ? "no museum text"
+                    : step.found !== step.count
+                      ? `${step.found} of ${step.count} with museum text`
+                      : step.count === 1
+                        ? "museum text"
+                        : "all with museum text"}
+                </Chip>
+              )}
+              {step.items && <ReadStrip items={step.items} />}
+            </>
+          )}
           {step.phase === "error" && step.error && (
             <Chip tone="error" title={step.error}>
               {step.error === "didn't finish" ? "didn’t finish" : "failed"}
@@ -182,7 +229,7 @@ export function WorkGroup({
 }: {
   running: boolean;
   seconds?: number;
-  counts: { searches: number; lookedAt: number; kept?: number };
+  counts: { searches: number; lookedAt: number; readAbout: number; kept?: number };
   hasError: boolean;
   children: ReactNode;
 }) {
@@ -218,6 +265,7 @@ export function WorkGroup({
               </Chip>
             )}
             {counts.lookedAt > 0 && <Chip>{counts.lookedAt} looked at</Chip>}
+            {counts.readAbout > 0 && <Chip>{counts.readAbout} read about</Chip>}
             {counts.kept !== undefined && counts.kept > 0 && <Chip>{counts.kept} made the exhibit</Chip>}
           </span>
         )}

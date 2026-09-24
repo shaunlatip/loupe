@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
 import { artworkTint } from "@/lib/tint";
@@ -11,17 +11,46 @@ import SourceBadge from "./SourceBadge";
 const STAGGER_LIMIT = 16;
 const STAGGER_STEP_MS = 28;
 
+/** Hover this long before a comment opens, so sweeping the pointer across
+ *  the wall doesn't flash every comment on the way. */
+const COMMENT_INTENT_MS = 90;
+
 export default function ArtworkCard({
   artwork,
   index = 0,
+  comment,
   onOpen,
 }: {
   artwork: Artwork;
   /** reading-order position, drives the entrance stagger */
   index?: number;
+  /** Curio's word on this work, when it has one */
+  comment?: string;
   onOpen: (a: Artwork) => void;
 }) {
   const calm = useCalmScore(artwork);
+  const commentId = useId();
+
+  // Curio's comment sits on the picture as a blue tag showing its first few
+  // words; pointing anywhere at the card (or focusing it) opens it to the
+  // full text in place, over the picture, so nothing on the wall moves.
+  const [commentOpen, setCommentOpen] = useState(false);
+  const commentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openCommentSoon = () => {
+    if (!comment || commentTimer.current) return;
+    commentTimer.current = setTimeout(() => setCommentOpen(true), COMMENT_INTENT_MS);
+  };
+  const closeComment = () => {
+    if (commentTimer.current) clearTimeout(commentTimer.current);
+    commentTimer.current = null;
+    setCommentOpen(false);
+  };
+  useEffect(
+    () => () => {
+      if (commentTimer.current) clearTimeout(commentTimer.current);
+    },
+    [],
+  );
 
   // Reserving the image box up front is what stops the masonry from
   // reflowing as thumbnails decode: with aspect-ratio set from the known
@@ -77,6 +106,8 @@ export default function ArtworkCard({
     <figure
       className="group animate-fade mb-8"
       style={{ ["--stagger" as string]: `${stagger}ms` }}
+      onPointerEnter={openCommentSoon}
+      onPointerLeave={closeComment}
     >
       <button
         className="press-none block w-full cursor-pointer text-left"
@@ -84,8 +115,13 @@ export default function ArtworkCard({
         onPointerEnter={warmSoon}
         onPointerLeave={cancelWarm}
         onPointerDown={warmHires}
-        onFocus={warmHires}
+        onFocus={() => {
+          warmHires();
+          if (comment) setCommentOpen(true);
+        }}
+        onBlur={closeComment}
         aria-label={`${artwork.title}, ${artwork.artist}`}
+        aria-describedby={comment ? commentId : undefined}
       >
         <span
           className={`relative block w-full border border-ink ${
@@ -125,6 +161,20 @@ export default function ArtworkCard({
             aria-hidden
             className="pointer-events-none absolute inset-0 border-[3px] border-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
           />
+          {/* Curio's comment: the first few words on a blue tag at the
+              picture's foot; open, the whole of it, inside the mat. */}
+          {comment && (
+            <span
+              id={commentId}
+              className={`pointer-events-none absolute z-10 bg-accent text-left font-semibold text-paper ${
+                commentOpen
+                  ? "right-[3px] bottom-[3px] left-[3px] px-2.5 py-2 text-[13px] leading-[1.4]"
+                  : "bottom-0 left-0 max-w-[80%] truncate px-2 py-1 text-[12px] leading-[1.4]"
+              }`}
+            >
+              {comment}
+            </span>
+          )}
         </span>
       </button>
       <figcaption className="mt-2 flex flex-col gap-1">

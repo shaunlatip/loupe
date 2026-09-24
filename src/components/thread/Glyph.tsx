@@ -1,7 +1,7 @@
 "use client";
 
-import { Eye, Frame, Search, type LucideIcon } from "lucide-react";
-import { Flip, Gather, Morph } from "loading-dev";
+import { BookOpen, Eye, Frame, PenLine, Search, type LucideIcon } from "lucide-react";
+import { Blocks, Flip, Gather, Morph } from "loading-dev";
 import type { StepKind } from "@/lib/thread/types";
 import Icon from "../Icon";
 import type { CuratorPhase } from "./status";
@@ -10,13 +10,20 @@ import type { CuratorPhase } from "./status";
  * One vocabulary of motion for Curio's work, used everywhere it shows:
  *   searching  Flip    a square flipping over: going through the drawers
  *   looking    Morph   a square rounding to a circle: the loupe focusing
+ *   reading    Blocks  rows lighting in turn: lines of a label, read down
  *   choosing   Gather  four blocks pulling together: a set coming together,
  *   curating           from weighing what it saw through to hanging it
  *   thinking   Flip, slower
  * At rest each kind has a static glyph instead.
  */
 
-const GLYPH: Record<StepKind, LucideIcon> = { search: Search, look: Eye, exhibit: Frame };
+const GLYPH: Record<StepKind, LucideIcon> = {
+  search: Search,
+  look: Eye,
+  read: BookOpen,
+  exhibit: Frame,
+  revise: PenLine,
+};
 
 export function Spinner({
   phase,
@@ -28,7 +35,8 @@ export function Spinner({
   className?: string;
 }) {
   if (phase === "look" || phase === "looking") return <Morph size={size} className={className} />;
-  if (phase === "exhibit" || phase === "curating" || phase === "choosing")
+  if (phase === "read" || phase === "reading") return <Blocks sweep="rows" size={size} className={className} />;
+  if (phase === "exhibit" || phase === "revise" || phase === "curating" || phase === "choosing")
     return <Gather size={size} className={className} />;
   if (phase === "thinking") return <Flip size={size} duration={1800} className={className} />;
   return <Flip size={size} className={className} />;

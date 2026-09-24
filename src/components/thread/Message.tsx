@@ -2,10 +2,11 @@
 
 import { Search } from "lucide-react";
 import type { Artwork } from "@/lib/types";
-import type { CurioUIMessage, ExhibitData, StepData } from "@/lib/thread/types";
+import type { CurioUIMessage, ExhibitData, RevisionData, StepData } from "@/lib/thread/types";
 import Icon from "../Icon";
 import ExhibitCard from "./ExhibitCard";
 import { ThinkingLine } from "./Live";
+import RevisionCard from "./RevisionCard";
 import { StepRow, WorkGroup } from "./Steps";
 import type { CuratorStatus } from "./status";
 
@@ -84,7 +85,8 @@ function SearchEntry({ message }: { message: CurioUIMessage }) {
 type Segment =
   | { kind: "text"; key: string; text: string; streaming: boolean }
   | { kind: "step"; key: string; step: StepData }
-  | { kind: "exhibit"; key: string; exhibit: ExhibitData };
+  | { kind: "exhibit"; key: string; exhibit: ExhibitData }
+  | { kind: "revision"; key: string; revision: RevisionData };
 
 function segmentsOf(m: CurioUIMessage): Segment[] {
   const out: Segment[] = [];
@@ -95,6 +97,8 @@ function segmentsOf(m: CurioUIMessage): Segment[] {
       out.push({ kind: "step", key: p.id ?? `s${i}`, step: p.data });
     } else if (p.type === "data-exhibit") {
       out.push({ kind: "exhibit", key: p.id ?? `e${i}`, exhibit: p.data });
+    } else if (p.type === "data-revision") {
+      out.push({ kind: "revision", key: p.id ?? `r${i}`, revision: p.data });
     }
   });
   return out;
@@ -102,8 +106,9 @@ function segmentsOf(m: CurioUIMessage): Segment[] {
 
 /**
  * A curator turn: the opening brief, the work (steps and short asides, as
- * one group that folds away once the exhibit is up), the exhibit itself, and
- * anything said after it.
+ * one group that folds away once the turn is done), then what the turn
+ * came to: a new exhibit, a revision of the one on the wall, or an answer in
+ * words, and anything said after it.
  */
 export function AssistantMessage({
   message,
@@ -112,7 +117,9 @@ export function AssistantMessage({
   onWallExhibitId,
   exhibitPartId,
   onShow,
+  onShowPart,
   onOpen,
+  onOpenIn,
   onFollowUp,
   onRunFresh,
   busy,
@@ -124,7 +131,11 @@ export function AssistantMessage({
   onWallExhibitId?: string;
   exhibitPartId?: string;
   onShow: () => void;
-  onOpen: (a: Artwork) => void;
+  /** put the exhibit with this part id back on the wall (a revision's target) */
+  onShowPart: (partId: string) => void;
+  onOpen: (a: Artwork, comment?: string) => void;
+  /** open a work of the exhibit with this part id (from a revision) */
+  onOpenIn: (partId: string, workId: string) => void;
   onFollowUp: (text: string) => void;
   onRunFresh?: () => void;
   busy: boolean;
@@ -136,10 +147,29 @@ export function AssistantMessage({
   // above the work even once the work folds away.
   const brief = segs[0]?.kind === "text" ? segs[0] : undefined;
   const rest = brief ? segs.slice(1) : segs;
-  const exhibitAt = rest.findIndex((s) => s.kind === "exhibit");
-  const work = exhibitAt === -1 ? rest : rest.slice(0, exhibitAt);
-  const exhibitSeg = exhibitAt === -1 ? undefined : (rest[exhibitAt] as Extract<Segment, { kind: "exhibit" }>);
-  const after = exhibitAt === -1 ? [] : rest.slice(exhibitAt + 1).filter((s) => s.kind === "text");
+  const resultAt = rest.findIndex((s) => s.kind === "exhibit" || s.kind === "revision");
+  const lastStepAt = rest.findLastIndex((s) => s.kind === "step");
+  let work: Segment[];
+  let after: Segment[];
+  if (resultAt !== -1) {
+    work = rest.slice(0, resultAt);
+    after = rest.slice(resultAt + 1).filter((s) => s.kind === "text");
+  } else if (lastStepAt === -1) {
+    // no tools at all: a plain answer
+    work = [];
+    after = rest;
+  } else if (live) {
+    // still working: prose between steps is an aside, inside the group
+    work = rest;
+    after = [];
+  } else {
+    // done without a result: what it wrote after its last step is the answer
+    work = rest.slice(0, lastStepAt + 1);
+    after = rest.slice(lastStepAt + 1);
+  }
+  const resultSeg = resultAt === -1 ? undefined : rest[resultAt];
+  const exhibitSeg = resultSeg?.kind === "exhibit" ? resultSeg : undefined;
+  const revisionSeg = resultSeg?.kind === "revision" ? resultSeg : undefined;
 
   const steps = work.filter((s): s is Extract<Segment, { kind: "step" }> => s.kind === "step").map((s) => s.step);
   const kept = exhibitSeg ? new Set(exhibitSeg.exhibit.artworks.map((a) => a.id)) : undefined;
@@ -147,14 +177,14 @@ export function AssistantMessage({
   const scanning = live && status.phase === "choosing" && status.after === "look";
   const runningStep = steps.some((s) => s.phase === "running");
   const streamingText = segs.some((s) => s.kind === "text" && s.streaming);
-  const showThinking = live && !runningStep && !streamingText && !exhibitSeg;
+  const showThinking = live && !runningStep && !streamingText && !resultSeg;
   const { startedAt, finishedAt, recorded } = message.metadata ?? {};
   const seconds =
     startedAt && finishedAt ? Math.max(1, Math.round((finishedAt - startedAt) / 1000)) : undefined;
   const lookedAt = steps
     .filter((s) => s.kind === "look")
     .reduce((n, s) => n + (s.items?.filter((i) => i.state === "seen").length ?? 0), 0);
-  const hasWork = work.length > 0;
+  const hasWork = steps.length > 0;
   // A museum that's down fails every search in the turn; say so once, on
   // the first search it missed, not as a red chip on each.
   const reported = new Set<string>();
@@ -171,11 +201,12 @@ export function AssistantMessage({
 
       {hasWork && (
         <WorkGroup
-          running={live && !exhibitSeg}
+          running={live && !resultSeg}
           seconds={seconds}
           counts={{
             searches: steps.filter((s) => s.kind === "search").length,
             lookedAt,
+            readAbout: steps.filter((s) => s.kind === "read").reduce((n, s) => n + (s.count ?? 0), 0),
             kept: kept?.size,
           }}
           hasError={steps.some((s) => s.phase === "error")}
@@ -196,6 +227,7 @@ export function AssistantMessage({
           {showThinking && <ThinkingLine status={status} />}
         </WorkGroup>
       )}
+      {!hasWork && work.map((s) => (s.kind === "text" ? <Prose key={s.key} text={s.text} /> : null))}
       {showThinking && !hasWork && <ThinkingLine status={status} />}
 
       {exhibitSeg && (
@@ -208,6 +240,14 @@ export function AssistantMessage({
           recorded={recorded}
           onRunFresh={onRunFresh}
           busy={busy}
+        />
+      )}
+      {revisionSeg && (
+        <RevisionCard
+          revision={revisionSeg.revision}
+          onWall={onWallExhibitId !== undefined && onWallExhibitId === revisionSeg.revision.target}
+          onShow={() => onShowPart(revisionSeg.revision.target)}
+          onOpen={(id) => onOpenIn(revisionSeg.revision.target, id)}
         />
       )}
       {after.map((s) => (s.kind === "text" ? <Prose key={s.key} text={s.text} /> : null))}

@@ -9,7 +9,7 @@ import type { Artwork } from "@/lib/types";
  * engine ran the turn (the tool-call parts themselves are ignored).
  */
 
-export type StepKind = "search" | "look" | "exhibit";
+export type StepKind = "search" | "look" | "read" | "exhibit" | "revise";
 export type StepPhase = "running" | "done" | "error";
 
 /** A work the curator has in hand during a step (a search preview or a look). */
@@ -34,13 +34,16 @@ export interface StepData {
   years?: string;
   /** search: the one museum it was restricted to, if any */
   source?: string;
-  /** search: results returned · look: works requested */
+  /** search: results returned · look / read: works requested */
   count?: number;
+  /** read: how many of them the museum publishes its own text for */
+  found?: number;
   /** search: how many museums answered with something */
   museums?: number;
   /** museums that didn't answer (search) */
   unavailable?: string[];
-  /** search: a 5-work preview of what came back · look: the works in view */
+  /** search: a 5-work preview of what came back · look: the works in view ·
+   *  read: the works read about ("seen" when the museum had text on it) */
   items?: StepItem[];
   error?: string;
 }
@@ -52,8 +55,31 @@ export interface ExhibitData {
   artworks: Artwork[];
   /** 2-3 short refinements to offer next */
   followUps: string[];
+  /** Curio's word on a few works it wants to point out (id → one to three
+   *  sentences); most works have none */
+  comments?: Record<string, string>;
   /** assembled by the time budget rather than chosen by the model */
   fallback?: boolean;
+}
+
+/** An edit to an exhibit already in the thread (the one on the wall), made
+ *  instead of hanging a new one. The client applies it to that exhibit part
+ *  in place; this part is the turn's record of what changed. Rewritten in
+ *  place if Curio revises twice in one turn, so it always holds the turn's
+ *  whole edit. */
+export interface RevisionData {
+  /** the data-exhibit part it edits */
+  target: string;
+  /** the exhibit's title after the edit */
+  title: string;
+  /** the title changed */
+  retitled?: boolean;
+  /** the new note, when it changed */
+  note?: string;
+  /** comments set in this edit, id → text; "" removed that work's comment */
+  comments: Record<string, string>;
+  /** the works those comments are on, for the thread */
+  works: StepItem[];
 }
 
 /** A plain search run from the one input, recorded in the thread so the
@@ -96,6 +122,7 @@ export interface CurioMetadata {
 export type CurioDataTypes = {
   step: StepData;
   exhibit: ExhibitData;
+  revision: RevisionData;
   search: SearchEntryData;
 };
 
@@ -105,6 +132,11 @@ export type CurioUIMessage = UIMessage<CurioMetadata, CurioDataTypes>;
  *  after any kind of search. Text only; ids let the curator re-present works. */
 export interface WallContext {
   heading?: string;
+  /** the wall is showing one of Curio's exhibits (not a search or a collection) */
+  exhibit?: boolean;
+  /** that exhibit's data-part id, which revise_exhibit edits (added by the
+   *  thread, which knows it) */
+  exhibitId?: string;
   count: number;
   works: { id: string; title: string; artist: string; date: string }[];
 }

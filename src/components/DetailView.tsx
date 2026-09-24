@@ -12,6 +12,7 @@ import { sourceLabel } from "./SourceBadge";
 
 export default function DetailView({
   artwork,
+  comment,
   onClose,
   onPrev,
   onNext,
@@ -21,6 +22,8 @@ export default function DetailView({
   onAttach,
 }: {
   artwork: Artwork;
+  /** Curio's comment on this work, from the exhibit it's in */
+  comment?: string;
   onClose: () => void;
   /** step to the neighbouring work in the current grid (← / →) */
   onPrev?: () => void;
@@ -354,6 +357,13 @@ export default function DetailView({
                   </span>
                 ),
               )}
+            </div>
+          )}
+
+          {comment && (
+            <div className="mt-6">
+              <p className="caption">Curio on this work</p>
+              <p className="pretty mt-1.5 border-l-2 border-accent pl-3 text-[15px] leading-snug">{comment}</p>
             </div>
           )}
 

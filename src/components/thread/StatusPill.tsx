@@ -2,7 +2,7 @@
 
 import { Spinner } from "./Glyph";
 import { Elapsed } from "./Live";
-import { isWorking } from "./status";
+import { doneTitle, isWorking } from "./status";
 import { useThread } from "./ThreadProvider";
 
 /**
@@ -38,7 +38,7 @@ export default function StatusPill() {
     );
   }
 
-  if (unseen && curator.exhibit) {
+  if (unseen) {
     return (
       <button
         type="button"
@@ -47,7 +47,7 @@ export default function StatusPill() {
         className="invert-hover animate-rise flex min-w-0 max-w-[22rem] items-center gap-2 border border-ink px-3 py-2 text-[13px]"
       >
         <span aria-hidden className="block h-2 w-2 shrink-0 bg-accent" />
-        <span className="truncate">{curator.exhibit.title}</span>
+        <span className="truncate">{doneTitle(curator)}</span>
         <span className="shrink-0 font-semibold">Open</span>
       </button>
     );
