@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/thread/types";
 import { artworkTint } from "@/lib/tint";
 import { Spinner } from "./thread/Glyph";
+import CommentCard from "./CommentCard";
 import Icon from "./Icon";
 import { sourceLabel } from "./SourceBadge";
 
@@ -361,10 +362,9 @@ export default function DetailView({
           )}
 
           {comment && (
-            <div className="mt-6">
-              <p className="caption">Curio on this work</p>
-              <p className="pretty mt-1.5 border-l-2 border-accent pl-3 text-[15px] leading-snug">{comment}</p>
-            </div>
+            <CommentCard className="mt-6" label="Curio on this work">
+              {comment}
+            </CommentCard>
           )}
 
           <dl className="mt-8 flex flex-col gap-3 border-t border-ink pt-4">

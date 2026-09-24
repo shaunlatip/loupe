@@ -3,7 +3,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
+import { MessageSquareText } from "lucide-react";
 import { artworkTint } from "@/lib/tint";
+import CommentCard from "./CommentCard";
+import Icon from "./Icon";
 import SourceBadge from "./SourceBadge";
 
 /** Cards past this reading-order index enter without delay — the stagger is
@@ -39,10 +42,10 @@ function placeComment(frame: DOMRect, bounds: DOMRect): { side: CommentSide; off
 }
 
 /**
- * The comment, written out as it opens: quick (about a second at most, so a
- * long one never makes you wait), with the whole text laid out from the
- * first frame so the box never grows while it types. Reduced motion shows it
- * all at once.
+ * The comment, written out as it opens: fast (a quarter of a second at most,
+ * a reveal rather than a wait), with the whole text laid out from the first
+ * frame so the box never grows while it types. Reduced motion shows it all
+ * at once.
  */
 function TypedComment({ text }: { text: string }) {
   const [n, setN] = useState(0);
@@ -51,7 +54,7 @@ function TypedComment({ text }: { text: string }) {
       setN(text.length);
       return;
     }
-    const perChar = Math.min(14, 1000 / Math.max(1, text.length));
+    const perChar = Math.min(3, 250 / Math.max(1, text.length));
     const t0 = performance.now();
     let raf = 0;
     const tick = (now: number) => {
@@ -62,12 +65,9 @@ function TypedComment({ text }: { text: string }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [text]);
-  const typing = n < text.length;
   return (
     <>
       {text.slice(0, n)}
-      {/* the caret takes no width, so nothing rewraps under it */}
-      {typing && <span className="inline-block h-[1.05em] w-[2px] -mr-[2px] bg-accent align-[-0.18em]" />}
       <span className="invisible">{text.slice(n)}</span>
     </>
   );
@@ -241,11 +241,18 @@ export default function ArtworkCard({
             aria-hidden
             className="pointer-events-none absolute inset-0 border-[3px] border-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
           />
-          {/* Curio has a word on this one: an accent line along the top
-              edge, over the mat, the same edge its comment opens with. */}
+          {/* Curio has a word on this one: a small accent badge in the top
+              right corner. The paper rim keeps it legible on a dark picture,
+              the accent fill on a light one. */}
           {comment && (
             <>
-              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-accent" />
+              <span
+                aria-hidden
+                title="Curio has a note on this"
+                className="pointer-events-none absolute top-2 right-2 flex h-6 w-6 items-center justify-center border-2 border-paper bg-accent text-paper"
+              >
+                <Icon icon={MessageSquareText} size={13} />
+              </span>
               <span id={commentId} className="sr-only">
                 Curio: {comment}
               </span>
@@ -254,9 +261,9 @@ export default function ArtworkCard({
         </span>
       </button>
       {comment && commentAt && (
-        <aside
-          aria-hidden
-          className={`animate-fade pointer-events-none absolute z-10 border border-ink border-t-[3px] border-t-accent bg-paper px-3.5 pt-2.5 pb-3 text-left ${
+        <CommentCard
+          hidden
+          className={`animate-fade pointer-events-none absolute z-10 ${
             commentAt.side === "right"
               ? "left-[calc(100%+12px)]"
               : commentAt.side === "left"
@@ -271,11 +278,8 @@ export default function ArtworkCard({
             top: commentAt.side === "left" || commentAt.side === "right" ? commentAt.offset : undefined,
           }}
         >
-          <p className="caption text-accent!">Curio</p>
-          <p className="pretty mt-1 text-[14px] leading-[1.5] text-ink">
-            <TypedComment text={comment} />
-          </p>
-        </aside>
+          <TypedComment text={comment} />
+        </CommentCard>
       )}
       <figcaption className="mt-2 flex flex-col gap-1">
         <div className="flex items-start justify-between gap-2">

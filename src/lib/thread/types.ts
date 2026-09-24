@@ -55,8 +55,8 @@ export interface ExhibitData {
   artworks: Artwork[];
   /** 2-3 short refinements to offer next */
   followUps: string[];
-  /** Curio's word on a few works it wants to point out (id → one to three
-   *  sentences); most works have none */
+  /** Curio's word on a few works it wants to point out (id → one or two
+   *  short sentences); most works have none */
   comments?: Record<string, string>;
   /** assembled by the time budget rather than chosen by the model */
   fallback?: boolean;

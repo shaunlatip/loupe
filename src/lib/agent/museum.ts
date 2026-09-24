@@ -26,9 +26,9 @@ export const TOOL_SOURCE_IDS = ["aic", "cma", "met", "smk", "mia", "rijks", "har
 export const VIEW_LIMIT = 8;
 export const READ_LIMIT = 4;
 const PREVIEW_ITEMS = 5;
-/** A comment is one to three short sentences (the prompt asks for under 60
+/** A comment is one or two short sentences (the prompt asks for under 30
  *  words); past this it's cut at a sentence. */
-const COMMENT_MAX = 400;
+const COMMENT_MAX = 220;
 
 const SOURCE_LABELS: Record<SourceId, string> = {
   aic: "Art Institute of Chicago",
@@ -184,7 +184,7 @@ const commentsInput = z
   .array(
     z.object({
       id: z.string().describe("a work in the exhibit"),
-      comment: z.string().describe("one to three sentences on this one work, leading with the point"),
+      comment: z.string().describe("one or two short sentences (under 30 words) on this one work, leading with the point"),
     }),
   )
   .optional();
