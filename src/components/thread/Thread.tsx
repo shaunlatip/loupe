@@ -118,7 +118,13 @@ function StatusLine() {
       role="status"
       aria-live="polite"
     >
-      <span aria-hidden className="flex h-[18px] w-3 shrink-0 items-center justify-center text-accent">
+      {/* the accent is for live activity only: stopped is neutral, an error is red */}
+      <span
+        aria-hidden
+        className={`flex h-[18px] w-3 shrink-0 items-center justify-center ${
+          working ? "text-accent" : curator.phase === "error" ? "text-destructive" : "text-ink/40"
+        }`}
+      >
         {working ? (
           <Spinner phase={curator.phase} size={11} />
         ) : curator.phase === "done" ? (

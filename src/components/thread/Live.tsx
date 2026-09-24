@@ -48,8 +48,22 @@ export function fmtElapsed(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Seconds since `since`. Ticks on the turn's own second boundaries (not
+ *  every 1000ms from whenever it mounted), so every timer showing the same
+ *  turn (the status line, the header pill, the table band) flips together. */
 export function Elapsed({ since, className = "" }: { since?: number; className?: string }) {
-  const now = useNow(since !== undefined);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const n = Date.now();
+      setNow(n);
+      t = setTimeout(tick, 1000 - ((n - since) % 1000) + 5);
+    };
+    tick();
+    return () => clearTimeout(t);
+  }, [since]);
   if (since === undefined) return null;
   return <span className={`tabular font-mono ${className}`}>{fmtElapsed(now - since)}</span>;
 }
