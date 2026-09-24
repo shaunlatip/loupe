@@ -15,7 +15,7 @@ import { useThread } from "./ThreadProvider";
  * the place of a skeleton grid.
  */
 export default function CuratorTable({ emptyWall = false }: { emptyWall?: boolean }) {
-  const { messages, curator, curatorText: text, open, mode } = useThread();
+  const { messages, curator, curatorText: text, curatorGlyph, open, mode } = useThread();
   const threadShowing = open && mode === "docked";
   if (!isWorking(curator) || (threadShowing && !emptyWall)) return null;
 
@@ -38,7 +38,7 @@ export default function CuratorTable({ emptyWall = false }: { emptyWall?: boolea
     >
       <div className="flex items-center gap-2 text-[12px] leading-[18px]">
         <span aria-hidden className="flex w-3.5 justify-center text-accent">
-          <Spinner phase={curator.phase} size={12} />
+          <Spinner phase={curatorGlyph} size={12} />
         </span>
         <span className="caption text-ink">On Curio&rsquo;s table</span>
         <span key={text} className="animate-fade text-ink/70">

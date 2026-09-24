@@ -26,7 +26,14 @@ import type {
   WallContext,
 } from "@/lib/thread/types";
 import { useSteadyText } from "./Live";
-import { deriveStatus, exhibitOf, isWorking, statusText, type CuratorStatus } from "./status";
+import {
+  deriveStatus,
+  exhibitOf,
+  isWorking,
+  statusText,
+  type CuratorPhase,
+  type CuratorStatus,
+} from "./status";
 
 /**
  * The thread: one conversation that every input feeds. A plain search, a
@@ -60,6 +67,8 @@ interface ThreadContextValue {
   curator: CuratorStatus;
   /** statusText(curator), held long enough per change to be read */
   curatorText: string;
+  /** the phase that goes with curatorText, for its spinner */
+  curatorGlyph: CuratorPhase;
   /** the exhibit the wall is showing, if it came from the thread */
   wallExhibitId?: string;
   open: boolean;
@@ -213,7 +222,13 @@ export default function ThreadProvider({
     [messages, liveStatus, stopped, error, pendingSince],
   );
   // One held line for every surface that shows it, so they never disagree.
-  const curatorText = useSteadyText(statusText(curator));
+  // The phase rides along so a surface's spinner switches with its text,
+  // not ahead of it.
+  // Held only while it works: the moment a turn ends, the outcome shows.
+  const steady = useSteadyText(`${curator.phase}|${statusText(curator)}`);
+  const working = isWorking(curator);
+  const curatorGlyph = working ? (steady.slice(0, steady.indexOf("|")) as CuratorPhase) : curator.phase;
+  const curatorText = working ? steady.slice(steady.indexOf("|") + 1) : statusText(curator);
 
   // — open / mode / width
 
@@ -546,6 +561,7 @@ export default function ThreadProvider({
       chatStatus: liveStatus,
       curator,
       curatorText,
+      curatorGlyph,
       wallExhibitId,
       open,
       setOpen,
@@ -573,6 +589,7 @@ export default function ThreadProvider({
       liveStatus,
       curator,
       curatorText,
+      curatorGlyph,
       wallExhibitId,
       open,
       setOpen,

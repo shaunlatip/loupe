@@ -187,7 +187,9 @@ function ResultGrid({
                 </>
               )}
             </div>
-            {aside && count > 0 && <div className="ml-auto shrink-0">{aside}</div>}
+            {/* phone: the tools take their own left-aligned line under the
+                counts rather than stacking ragged against the right edge */}
+            {aside && count > 0 && <div className="ml-auto min-w-0 max-sm:ml-0 max-sm:w-full">{aside}</div>}
           </div>
         </header>
       )}

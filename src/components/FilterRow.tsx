@@ -34,17 +34,17 @@ const SORTS: { id: SortMode; label: string }[] = [
 const GROUP_ORDER: Category["group"][] = ["Movements", "Cultures", "Subjects", "Media"];
 
 /**
- * The wall's filter bar. It sizes itself against its own container, not the
- * window (`@container`), because the docked thread takes a resizable slice of
- * the page: at 1024px of bar or more every taxonomy group gets its own
- * dropdown; below that they fold into one sectioned "Filters" menu, so the bar
- * stays a single line at any width a desktop can give it.
+ * The bar under the input: what the next search asks for. Everything here
+ * starts a new query (a taxonomy pick) or shapes the next one (Sources).
+ * What acts on the set already on the wall (Color, In these results, Sort)
+ * sits at the right of the wall label instead (WallTools below).
  *
- * Trigger fill = "changed from default", so a resting bar reads all-quiet.
- * Taxonomy dropdowns are MULTI-select and compose as an intersection (see
- * mergeCategoryQueries in presets.ts). "In these results" is a different axis:
- * a post-fetch union filter over the movements the current results carry.
- * Sort lives with the wall label (it orders results), not here.
+ * It sizes itself against its own container, not the window (`@container`),
+ * because the docked thread takes a resizable slice of the page: at 1024px of
+ * bar or more every taxonomy group gets its own dropdown; below that they fold
+ * into one sectioned "Filters" menu, so the bar stays a single line at any
+ * width. Taxonomy dropdowns are MULTI-select and compose as an intersection
+ * (see mergeCategoryQueries in presets.ts).
  */
 export default function FilterRow({
   sources,
@@ -52,26 +52,12 @@ export default function FilterRow({
   onToggleSource,
   activeCategories,
   onToggleCategory,
-  targetColor,
-  onPickColor,
-  onClearColor,
-  movements,
-  activeMovements,
-  onToggleMovement,
 }: {
   sources: SourceId[];
   enabled: SourceId[];
   onToggleSource: (s: SourceId) => void;
   activeCategories: string[];
   onToggleCategory: (id: string) => void;
-  /** picked target color — ranks results by similarity (sort becomes "similar") */
-  targetColor?: HSL;
-  onPickColor: (c: HSL) => void;
-  onClearColor: () => void;
-  /** movements present across the current results — union refine, not taxonomy */
-  movements: string[];
-  activeMovements: string[];
-  onToggleMovement: (movement: string) => void;
 }) {
   // One computation of each group's items + selection state, shared by the
   // wide per-group dropdowns and the folded "Filters" menu.
@@ -87,10 +73,10 @@ export default function FilterRow({
     return { group, items, selected, label };
   }).filter((g) => g.items.length > 0);
   const liveTaxonomy = taxonomyGroups.reduce((n, g) => n + g.selected.length, 0);
-  // At phone width Sources and "In these results" live inside the folded
-  // menu, so its trigger counts their changes too.
+  // At phone width Sources lives inside the folded menu, so its trigger
+  // counts that change too.
   const sourcesChanged = enabled.length !== sources.length ? 1 : 0;
-  const liveNarrow = liveTaxonomy + sourcesChanged + activeMovements.length;
+  const liveNarrow = liveTaxonomy + sourcesChanged;
 
   const taxonomySections = taxonomyGroups.map(({ group, items }) => (
     <MenuSection key={group} title={group}>
@@ -140,8 +126,7 @@ export default function FilterRow({
           {() => taxonomySections}
         </Dropdown>
 
-        {/* Folded, phone width: Sources and "In these results" join it, so
-            the bar is two buttons rather than a wrapping row with an orphan. */}
+        {/* Folded, phone width: Sources joins it, so the bar is one button. */}
         <Dropdown
           className="@xl:hidden"
           active={liveNarrow > 0}
@@ -162,19 +147,6 @@ export default function FilterRow({
                   </DropdownOption>
                 ))}
               </MenuSection>
-              {movements.length > 0 && (
-                <MenuSection title="In these results">
-                  {movements.map((m) => (
-                    <DropdownOption
-                      key={m}
-                      selected={activeMovements.includes(m)}
-                      onClick={() => onToggleMovement(m)}
-                    >
-                      {m}
-                    </DropdownOption>
-                  ))}
-                </MenuSection>
-              )}
             </>
           )}
         </Dropdown>
@@ -199,56 +171,85 @@ export default function FilterRow({
           }
         </Dropdown>
 
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The right end of the wall label: what acts on the works already shown,
+ * without a new search. Color ranks them by closeness to a picked colour, In
+ * these results narrows them to movements they carry (a union filter), Sort
+ * orders them. Menus open leftward from the label's right edge.
+ */
+export function WallTools({
+  targetColor,
+  onPickColor,
+  onClearColor,
+  movements,
+  activeMovements,
+  onToggleMovement,
+  sort,
+  onSort,
+}: {
+  /** picked target color — ranks results by similarity (sort becomes "similar") */
+  targetColor?: HSL;
+  onPickColor: (c: HSL) => void;
+  onClearColor: () => void;
+  /** movements present across the current results */
+  movements: string[];
+  activeMovements: string[];
+  onToggleMovement: (movement: string) => void;
+  sort: SortMode;
+  onSort: (s: SortMode) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 max-sm:justify-start">
+      <Dropdown
+        align="right"
+        active={!!targetColor}
+        panelClassName="w-64 p-3"
+        label={
+          <span className="flex items-center gap-1.5">
+            {targetColor && (
+              <span
+                aria-hidden
+                className="h-3 w-3 border border-current"
+                style={{ backgroundColor: hslCss(targetColor) }}
+              />
+            )}
+            Color
+          </span>
+        }
+      >
+        {() => <ColorPicker value={targetColor} onChange={onPickColor} onClear={onClearColor} />}
+      </Dropdown>
+
+      {movements.length > 0 && (
         <Dropdown
-          active={!!targetColor}
-          panelClassName="w-64 p-3"
+          align="right"
+          active={activeMovements.length > 0}
+          panelClassName="max-h-80 overflow-y-auto"
+          title="Narrow these results to one or more movements"
           label={
-            <span className="flex items-center gap-1.5">
-              {targetColor && (
-                <span
-                  aria-hidden
-                  className="h-3 w-3 border border-current"
-                  style={{ backgroundColor: hslCss(targetColor) }}
-                />
-              )}
-              Color
-            </span>
+            activeMovements.length > 0 ? `In these results · ${activeMovements.length}` : "In these results"
           }
         >
-          {() => (
-            <ColorPicker
-              value={targetColor}
-              onChange={onPickColor}
-              onClear={onClearColor}
-            />
-          )}
+          {() =>
+            movements.map((m) => (
+              <DropdownOption
+                key={m}
+                selected={activeMovements.includes(m)}
+                onClick={() => onToggleMovement(m)}
+              >
+                {m}
+              </DropdownOption>
+            ))
+          }
         </Dropdown>
+      )}
 
-        {movements.length > 0 && (
-          <Dropdown
-            className="hidden @xl:block"
-            active={activeMovements.length > 0}
-            title="Narrow these results to one or more movements"
-            label={
-              activeMovements.length > 0
-                ? `In these results · ${activeMovements.length}`
-                : "In these results"
-            }
-          >
-            {() =>
-              movements.map((m) => (
-                <DropdownOption
-                  key={m}
-                  selected={activeMovements.includes(m)}
-                  onClick={() => onToggleMovement(m)}
-                >
-                  {m}
-                </DropdownOption>
-              ))
-            }
-          </Dropdown>
-        )}
-      </div>
+      <SortMenu sort={sort} onSort={onSort} />
     </div>
   );
 }

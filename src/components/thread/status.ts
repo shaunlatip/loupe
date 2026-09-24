@@ -12,6 +12,9 @@ export type CuratorPhase =
   | "thinking"
   | "searching"
   | "looking"
+  /** between steps after a look (weighing what it saw, the longest quiet
+   *  stretch of a turn) or after curating (arranging the exhibit) */
+  | "choosing"
   | "curating"
   | "done"
   | "error"
@@ -91,7 +94,9 @@ export function deriveStatus(
       const phase = running.kind === "search" ? "searching" : running.kind === "look" ? "looking" : "curating";
       return { ...base, phase, label: stepLabel(running, true) };
     }
-    return { ...base, phase: "thinking" };
+    // after a look it's weighing what it saw; after curating, arranging it
+    const choosing = base.after === "look" || base.after === "curate";
+    return { ...base, phase: choosing ? "choosing" : "thinking" };
   }
   if (chatStatus === "error") return { ...base, phase: "error", error: opts.error };
   if (opts.stopped) return { ...base, phase: "stopped" };
@@ -113,6 +118,7 @@ export function statusText(s: CuratorStatus): string {
     case "curating":
       return s.label ?? "Working";
     case "thinking":
+    case "choosing":
       // the first (steady) phrase for what just happened; the thread's own
       // thinking line is the one that rotates
       return thinkingPhrases(s, 0)[0];
@@ -133,5 +139,11 @@ export function curatedLine(e: ExhibitData): string {
 }
 
 export function isWorking(s: CuratorStatus): boolean {
-  return s.phase === "thinking" || s.phase === "searching" || s.phase === "looking" || s.phase === "curating";
+  return (
+    s.phase === "thinking" ||
+    s.phase === "searching" ||
+    s.phase === "looking" ||
+    s.phase === "choosing" ||
+    s.phase === "curating"
+  );
 }

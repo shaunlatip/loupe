@@ -24,8 +24,8 @@ import {
 import type { ExhibitData, SearchEntryData, WallContext } from "@/lib/thread/types";
 import ResultGrid from "@/components/ResultGrid";
 import DetailView from "@/components/DetailView";
-import FilterRow, { SortMenu } from "@/components/FilterRow";
-import CollectionsBar from "@/components/CollectionsBar";
+import FilterRow, { WallTools } from "@/components/FilterRow";
+import CollectionsMenu from "@/components/CollectionsMenu";
 import SaveMenu from "@/components/SaveMenu";
 import HomeHero from "@/components/HomeHero";
 import examplePreviews from "@/data/examples-index.json";
@@ -544,7 +544,22 @@ export default function Home() {
     setOpen(a);
   }, []);
 
-  const sortAside = useMemo(() => <SortMenu sort={sort} onSort={chooseSort} />, [sort, chooseSort]);
+  // The wall label's right end: tools that act on the works shown.
+  const wallTools = useMemo(
+    () => (
+      <WallTools
+        targetColor={targetColor}
+        onPickColor={pickColor}
+        onClearColor={clearColor}
+        movements={availableMovements}
+        activeMovements={activeMovements}
+        onToggleMovement={toggleMovement}
+        sort={sort}
+        onSort={chooseSort}
+      />
+    ),
+    [targetColor, pickColor, clearColor, availableMovements, activeMovements, toggleMovement, sort, chooseSort],
+  );
 
   const facts = useMemo(() => {
     if (reading) {
@@ -584,7 +599,20 @@ export default function Home() {
         className="mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-200 ease-[var(--ease-in-out)] [html[data-resizing]_&]:transition-none"
         style={{ marginRight: "max(calc((100vw - 1440px) / 2), var(--thread-w, 0px))" }}
       >
-        <SiteHeader onHome={clearAll} />
+        <SiteHeader
+          onHome={clearAll}
+          collections={
+            <CollectionsMenu
+              collections={collectionSummaries}
+              active={activeCollection}
+              exporting={exporting}
+              note={exportNote}
+              onOpen={openCollection}
+              onExport={(id) => void exportCollection(id)}
+              onDelete={removeCollection}
+            />
+          }
+        />
 
         {showWall ? (
           <>
@@ -596,32 +624,8 @@ export default function Home() {
                 onToggleSource={toggleSource}
                 activeCategories={activeCategories}
                 onToggleCategory={toggleCategory}
-                targetColor={targetColor}
-                onPickColor={pickColor}
-                onClearColor={clearColor}
-                movements={availableMovements}
-                activeMovements={activeMovements}
-                onToggleMovement={toggleMovement}
               />
             </div>
-
-            {(collectionSummaries.length > 0 || exportNote) && (
-              <div className="border-b border-ink py-3">
-                <CollectionsBar
-                  collections={collectionSummaries}
-                  active={activeCollection}
-                  onOpen={openCollection}
-                  onExport={(id) => void exportCollection(id)}
-                  onDelete={removeCollection}
-                  exporting={exporting}
-                />
-                {exportNote && (
-                  <p className="caption animate-rise mt-2" role="status">
-                    {exportNote}
-                  </p>
-                )}
-              </div>
-            )}
 
             <div className="pt-8">
               <CuratorTable emptyWall={curating && results.artworks.length === 0} />
@@ -642,7 +646,7 @@ export default function Home() {
                 note={results.note}
                 loading={loading}
                 facts={facts}
-                aside={sortAside}
+                aside={wallTools}
                 emptyHint={
                   results.origin === "collection" ? (
                     <span>Open any work and press Save to add it here.</span>
@@ -738,22 +742,27 @@ function Shortcuts() {
  * The header, on the page's 12-column grid: the wordmark over the content
  * columns, the tagline, credits and the door to the thread at the right.
  */
-function SiteHeader({ onHome }: { onHome: () => void }) {
+function SiteHeader({ onHome, collections }: { onHome: () => void; collections: React.ReactNode }) {
   return (
     <header className="grid grid-cols-12 items-end gap-x-6 gap-y-4 border-b border-ink py-8">
-      <h1 className="col-span-6 text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:col-span-7 max-md:text-[44px]">
+      <h1 className="col-span-6 text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[44px]">
         {/* the wordmark is intentionally lowercase */}
         <button type="button" onClick={onHome} title="Back to the start" className="press-none text-inherit">
           curio
         </button>
       </h1>
-      <div className="col-span-6 flex items-center justify-end gap-4 max-md:col-span-5">
+      <div className="col-span-6 flex items-center justify-end gap-4">
         <p className="caption hidden text-right lg:block">
           Open-access museum art, curated by an agent
           <br />
           <Credit />
         </p>
-        <StatusPill />
+        {/* stretch: the collections button takes the pill's height; relative:
+            the collections menu anchors to this group's right edge */}
+        <div className="relative flex min-w-0 items-stretch gap-2">
+          {collections}
+          <StatusPill />
+        </div>
       </div>
       {/* narrower: the same credit on its own line under the wordmark */}
       <p className="caption col-span-12 -mt-2 lg:hidden">

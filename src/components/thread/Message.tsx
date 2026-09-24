@@ -144,7 +144,7 @@ export function AssistantMessage({
   const steps = work.filter((s): s is Extract<Segment, { kind: "step" }> => s.kind === "step").map((s) => s.step);
   const kept = exhibitSeg ? new Set(exhibitSeg.exhibit.artworks.map((a) => a.id)) : undefined;
   const lastLook = [...steps].reverse().find((s) => s.kind === "look");
-  const scanning = live && status.phase === "thinking" && status.after === "look";
+  const scanning = live && status.phase === "choosing" && status.after === "look";
   const runningStep = steps.some((s) => s.phase === "running");
   const streamingText = segs.some((s) => s.kind === "text" && s.streaming);
   const showThinking = live && !runningStep && !streamingText && !exhibitSeg;

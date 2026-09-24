@@ -86,7 +86,7 @@ export function ThinkingLine({ status }: { status: CuratorStatus }) {
   return (
     <div className="flex items-center gap-2" role="status" aria-live="polite">
       <span aria-hidden className="flex h-[18px] w-3 shrink-0 items-center justify-center text-accent">
-        <Spinner phase="thinking" size={11} />
+        <Spinner phase={status.phase === "choosing" ? "choosing" : "thinking"} size={11} />
       </span>
       <span key={phrase} className="animate-fade text-sweep text-[12px] leading-[18px]">
         {phrase}

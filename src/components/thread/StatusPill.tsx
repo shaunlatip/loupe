@@ -11,7 +11,7 @@ import { useThread } from "./ThreadProvider";
  * you haven't looked at yet, or a turn that failed.
  */
 export default function StatusPill() {
-  const { curator, curatorText: text, open, setOpen, unseen, focusComposer } = useThread();
+  const { curator, curatorText: text, curatorGlyph, open, setOpen, unseen, focusComposer } = useThread();
   const working = isWorking(curator);
   const toggle = () => {
     const next = !open;
@@ -25,10 +25,10 @@ export default function StatusPill() {
         type="button"
         onClick={toggle}
         aria-controls="thread"
-        className="invert-hover flex max-w-[22rem] items-center gap-2 border border-ink px-3 py-2 text-[13px]"
+        className="invert-hover flex min-w-0 max-w-[22rem] items-center gap-2 border border-ink px-3 py-2 text-[13px]"
       >
         <span aria-hidden className="flex w-3.5 shrink-0 justify-center text-accent">
-          <Spinner phase={curator.phase} size={13} />
+          <Spinner phase={curatorGlyph} size={13} />
         </span>
         <span key={text} className="animate-fade truncate">
           {text}
@@ -44,7 +44,7 @@ export default function StatusPill() {
         type="button"
         onClick={toggle}
         aria-controls="thread"
-        className="invert-hover animate-rise flex max-w-[22rem] items-center gap-2 border border-ink px-3 py-2 text-[13px]"
+        className="invert-hover animate-rise flex min-w-0 max-w-[22rem] items-center gap-2 border border-ink px-3 py-2 text-[13px]"
       >
         <span aria-hidden className="block h-2 w-2 shrink-0 bg-accent" />
         <span className="truncate">{curator.exhibit.title}</span>
@@ -59,7 +59,7 @@ export default function StatusPill() {
         type="button"
         onClick={toggle}
         aria-controls="thread"
-        className="flex items-center gap-2 border border-destructive px-3 py-2 text-[13px] text-destructive hover:bg-destructive hover:text-paper"
+        className="flex items-center gap-2 whitespace-nowrap border border-destructive px-3 py-2 text-[13px] text-destructive hover:bg-destructive hover:text-paper"
       >
         Didn&rsquo;t finish · Open
       </button>
@@ -72,7 +72,7 @@ export default function StatusPill() {
       onClick={toggle}
       aria-pressed={open}
       aria-controls="thread"
-      className={`border border-ink px-4 py-2 text-[13px] font-semibold ${
+      className={`whitespace-nowrap border border-ink px-4 py-2 text-[13px] font-semibold ${
         open ? "bg-ink text-paper" : "invert-hover"
       }`}
     >

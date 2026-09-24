@@ -107,7 +107,7 @@ function ResizeHandle() {
 }
 
 function StatusLine() {
-  const { curator, curatorText: text } = useThread();
+  const { curator, curatorText: text, curatorGlyph } = useThread();
   const working = isWorking(curator);
   if (curator.phase === "idle") return null;
   return (
@@ -126,7 +126,7 @@ function StatusLine() {
         }`}
       >
         {working ? (
-          <Spinner phase={curator.phase} size={11} />
+          <Spinner phase={curatorGlyph} size={11} />
         ) : curator.phase === "done" ? (
           <Icon icon={Check} size={12} className="text-ink" />
         ) : (

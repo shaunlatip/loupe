@@ -10,7 +10,8 @@ import type { CuratorPhase } from "./status";
  * One vocabulary of motion for Curio's work, used everywhere it shows:
  *   searching  Flip    a square flipping over: going through the drawers
  *   looking    Morph   a square rounding to a circle: the loupe focusing
- *   curating   Gather  four blocks pulling together: a set coming together
+ *   choosing   Gather  four blocks pulling together: a set coming together,
+ *   curating           from weighing what it saw through to hanging it
  *   thinking   Flip, slower
  * At rest each kind has a static glyph instead.
  */
@@ -27,7 +28,8 @@ export function Spinner({
   className?: string;
 }) {
   if (phase === "look" || phase === "looking") return <Morph size={size} className={className} />;
-  if (phase === "exhibit" || phase === "curating") return <Gather size={size} className={className} />;
+  if (phase === "exhibit" || phase === "curating" || phase === "choosing")
+    return <Gather size={size} className={className} />;
   if (phase === "thinking") return <Flip size={size} duration={1800} className={className} />;
   return <Flip size={size} className={className} />;
 }
