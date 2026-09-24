@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildDownload, type ExportRequest } from "@/lib/export";
+import { clientKey, rateLimited } from "@/lib/rate-limit";
+
+const EXPORTS_PER_WINDOW = 20;
+const WINDOW_MS = 5 * 60 * 1000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +27,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  if (!(body.artworks && body.artworks.length > 0)) {
+  if (!(Array.isArray(body.artworks) && body.artworks.length > 0)) {
     return NextResponse.json(
       { error: "pass artworks to export" },
       { status: 400 },
     );
+  }
+  // every export fetches full-size images server-side
+  if (rateLimited(clientKey(req), EXPORTS_PER_WINDOW, WINDOW_MS)) {
+    return NextResponse.json({ error: "That's a lot of downloads at once. Give it a minute." }, { status: 429 });
   }
 
   try {

@@ -40,6 +40,7 @@ const NO_EXHIBIT =
   "Curio couldn't put an exhibit together this time: the searches didn't come back. A museum may be slow to answer; try again in a moment.";
 
 const MAX_STEPS = 8;
+const MAX_HISTORY = 30;
 const HOSTED_BUDGET_MS = 38_000;
 const LOCAL_MAX_TURNS = 16;
 
@@ -67,7 +68,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Expected JSON." }, { status: 400 });
   }
-  const messages = Array.isArray(body.messages) ? body.messages : [];
+  // the thread's recent history is plenty, and a client can't make one turn
+  // carry an unbounded prompt (history.ts caps each message's text too)
+  const messages = Array.isArray(body.messages) ? body.messages.slice(-MAX_HISTORY) : [];
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") {
     return NextResponse.json({ error: "The last message must be the visitor's." }, { status: 400 });

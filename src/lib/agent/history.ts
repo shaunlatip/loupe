@@ -40,37 +40,50 @@ export function wallLine(wall: WallContext | undefined): string | undefined {
 }
 
 function commentsLine(comments: Record<string, string> | undefined): string {
-  const entries = Object.entries(comments ?? {});
+  const entries = Object.entries(comments && typeof comments === "object" ? comments : {}).slice(0, 40);
   if (!entries.length) return "";
-  return ` Comments: ${entries.map(([id, c]) => (c ? `${id}: ${c}` : `${id}: (removed)`)).join(" | ")}.`;
+  const line = (id: string, c: unknown) => (c ? `${id.slice(0, 80)}: ${String(c).slice(0, 600)}` : `${id}: (removed)`);
+  return ` Comments: ${entries.map(([id, c]) => line(id, c)).join(" | ")}.`;
 }
 
+/** A visitor's message, or one prose part of Curio's, as the model gets it:
+ *  capped, since the history comes from the browser. */
+const USER_TEXT_MAX = 2_000;
+const ASSISTANT_TEXT_MAX = 4_000;
+
 function userText(m: CurioUIMessage): string {
-  return m.parts
-    .map((p) => (p.type === "text" ? p.text : ""))
+  return (Array.isArray(m.parts) ? m.parts : [])
+    .map((p) => (p.type === "text" && typeof p.text === "string" ? p.text : ""))
     .join("\n")
-    .trim();
+    .trim()
+    .slice(0, USER_TEXT_MAX);
 }
 
 function assistantText(m: CurioUIMessage): string {
   const out: string[] = [];
-  for (const p of m.parts) {
-    if (p.type === "text" && p.text.trim()) out.push(p.text.trim());
-    else if (p.type === "data-search") {
+  for (const p of Array.isArray(m.parts) ? m.parts : []) {
+    if (p.type === "text" && typeof p.text === "string" && p.text.trim()) {
+      out.push(p.text.trim().slice(0, ASSISTANT_TEXT_MAX));
+    } else if (p.type === "data-search") {
       const d = p.data;
       out.push(
         `[Searched the collections for "${d.query}": ${d.count} works from ${d.museums} museums${
           d.readAs?.length ? `, read as ${d.readAs.join(", ")}` : ""
         }]`,
       );
-    } else if (p.type === "data-exhibit") {
+    } else if (p.type === "data-exhibit" && p.data) {
       const d = p.data;
-      const works = d.artworks.map((a) => `${a.id} · ${a.title} · ${a.artist}`).join("; ");
-      out.push(`[Exhibit curated: "${d.title}". Works: ${works}. Note: ${d.note}${commentsLine(d.comments)}]`);
-    } else if (p.type === "data-revision") {
-      const d = p.data;
+      const works = (Array.isArray(d.artworks) ? d.artworks.slice(0, 40) : [])
+        .map((a) => `${a?.id} · ${a?.title} · ${a?.artist}`)
+        .join("; ");
       out.push(
-        `[Revised the exhibit on the wall, now "${d.title}".${d.note ? ` New note: ${d.note}` : ""}${commentsLine(d.comments)}]`,
+        `[Exhibit curated: "${str(d.title, 200)}". Works: ${works}. Note: ${str(d.note, 2000) ?? ""}${commentsLine(d.comments)}]`,
+      );
+    } else if (p.type === "data-revision" && p.data) {
+      const d = p.data;
+      const note = str(d.note, 2000);
+      out.push(
+        `[Revised the exhibit on the wall, now "${str(d.title, 200)}".${note ? ` New note: ${note}` : ""}${commentsLine(d.comments)}]`,
       );
     }
   }
