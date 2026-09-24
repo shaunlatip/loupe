@@ -228,9 +228,19 @@ export const TOOL_DESCRIPTIONS = {
     "Edit the exhibit on the visitor's wall in place instead of hanging a new one: add, rewrite or remove comments on its works, or change its title or note. Use it when the visitor asks about or wants changes to what's already up and no works need to come or go.",
 } as const;
 
+/** Words that go on the wall: whitespace collapsed, and no em dashes (the
+ *  prompt forbids them, but models still reach for them; a comma reads the
+ *  same in nearly every case). */
+function wallText(text: string): string {
+  return text
+    .replace(/\s*—\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Trim, collapse whitespace, and hold a comment to a few sentences. */
 function cleanComment(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = wallText(text);
   if (t.length <= COMMENT_MAX) return t;
   const cut = t.slice(0, COMMENT_MAX);
   const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
@@ -488,8 +498,8 @@ export async function presentExhibit(
   const resolved = found.filter((a): a is Artwork => !!a);
   const { comments } = commentMap(args.comments, new Set(resolved.map((a) => a.id)), false);
   const exhibit: ExhibitData = {
-    title: args.title?.trim() || "An exhibit",
-    note: args.note?.trim() ?? "",
+    title: wallText(args.title ?? "") || "An exhibit",
+    note: wallText(args.note ?? ""),
     artworks: resolved,
     followUps: (args.followUps ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 3),
     comments: Object.keys(comments).length ? comments : undefined,
@@ -524,8 +534,8 @@ export async function reviseExhibit(
   }
   const works = new Map(target.data.artworks.map((a) => [a.id, a]));
   const { comments, stray } = commentMap(args.comments, new Set(works.keys()), true);
-  const title = args.title?.trim();
-  const note = args.note?.trim();
+  const title = args.title ? wallText(args.title) : undefined;
+  const note = args.note ? wallText(args.note) : undefined;
   const changed = Object.keys(comments).length > 0 || Boolean(title) || Boolean(note);
   if (!changed) {
     return stray.length

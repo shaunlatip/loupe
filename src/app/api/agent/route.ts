@@ -147,6 +147,25 @@ export async function POST(req: NextRequest) {
 type Writer = Parameters<Parameters<typeof createUIMessageStream<CurioUIMessage>>[0]["execute"]>[0]["writer"];
 
 /**
+ * Em dashes out of Curio's streamed prose (the design forbids them in UI
+ * copy, and models reach for them regardless): "word—word" and "word — word"
+ * both become "word, word". A delta's trailing whitespace is held back until
+ * the next delta arrives, so a dash that opens the next delta doesn't leave
+ * "word , word" behind.
+ */
+function dashFilter() {
+  const held = new Map<string, string>();
+  return (chunk: { type: string; id?: string; delta?: unknown }) => {
+    if (chunk.type !== "text-delta" || typeof chunk.delta !== "string" || !chunk.id) return chunk;
+    let text = (held.get(chunk.id) ?? "") + chunk.delta;
+    text = text.replace(/\s*—\s*/g, ", ").replace(/ {2,}/g, " ");
+    const tail = text.match(/\s+$/)?.[0] ?? "";
+    held.set(chunk.id, tail);
+    return { ...chunk, delta: text.slice(0, text.length - tail.length) };
+  };
+}
+
+/**
  * Notes whether the model's latest word is prose or a tool call, so the route
  * can tell a turn that answered in the thread from one that was cut off.
  */
@@ -167,11 +186,12 @@ function withoutToolChunks<T extends { type: string }>(
   stream: ReadableStream<T>,
   ctx: MuseumContext,
 ): ReadableStream<T> {
+  const undash = dashFilter();
   return stream.pipeThrough(
     new TransformStream<T, T>({
       transform(chunk, controller) {
         noteLastWord(chunk, ctx);
-        if (!chunk.type.startsWith("tool-")) controller.enqueue(chunk);
+        if (!chunk.type.startsWith("tool-")) controller.enqueue(undash(chunk) as T);
       },
     }),
   );
@@ -329,6 +349,7 @@ function endAtExhibit<T extends { type: string; id?: string }>(
 ): ReadableStream<T> {
   const open = new Set<string>();
   let ended = false;
+  const undash = dashFilter();
   return stream.pipeThrough(
     new TransformStream<T, T>({
       transform(chunk, controller) {
@@ -344,7 +365,7 @@ function endAtExhibit<T extends { type: string; id?: string }>(
         if (chunk.type.startsWith("tool-")) return;
         if (chunk.type === "text-start" && chunk.id) open.add(chunk.id);
         if (chunk.type === "text-end" && chunk.id) open.delete(chunk.id);
-        controller.enqueue(chunk);
+        controller.enqueue(undash(chunk) as T);
       },
     }),
   );

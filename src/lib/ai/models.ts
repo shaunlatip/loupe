@@ -25,10 +25,25 @@ export function curatorEngine(): Engine {
   return process.env.VERCEL ? "openrouter" : "claude";
 }
 
-/** Cheap paid vision + tool models; OpenRouter's :free tier shares a daily
- *  cap a public demo exhausts (see AGENTS.md § Deploy). Comma list: the first
- *  is primary, the rest are fallbacks. */
-const DEFAULT_HOSTED = "google/gemini-2.5-flash-lite,qwen/qwen3-vl-30b-a3b-instruct";
+/**
+ * Hosted models, chosen by `scripts/bench-models.mjs` (2026-09-24: seven turns
+ * each, from a fresh brief to a revision to a plain question, through the real
+ * route). Comma list: the first is primary, the rest are fallbacks.
+ *
+ *   curator    Claude Haiku 4.5: every turn right, specific comments that come
+ *              from looking, 7-8 works an exhibit, 20-35s a curate turn, about
+ *              $0.03 a turn. Gemini 3.1 Flash-Lite as the fallback: also every
+ *              turn right, ~$0.003 a turn, but thin exhibits and generic
+ *              comments. Rejected: Gemini 2.5 Flash-Lite (asked the visitor
+ *              questions instead of curating, invented a painter), GPT-5 mini
+ *              (two of seven failed, slow), Sonnet 5 (52-58s, too close to
+ *              Vercel's 60s, ~$0.10 a turn), :free models (rate-limited
+ *              upstream on a shared pool).
+ *   interpret  One structured call per description; not part of that bench,
+ *              so it stays on the model it was tuned with.
+ */
+const DEFAULT_CURATOR = "anthropic/claude-haiku-4.5,google/gemini-3.1-flash-lite";
+const DEFAULT_INTERPRET = "google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite";
 
 function modelList(env: string | undefined, fallback: string): string[] {
   return (env?.trim() || fallback)
@@ -37,8 +52,8 @@ function modelList(env: string | undefined, fallback: string): string[] {
     .filter(Boolean);
 }
 
-export const CURATOR_MODELS = modelList(process.env.CURIO_CURATOR_MODEL, DEFAULT_HOSTED);
-export const INTERPRET_MODELS = modelList(process.env.CURIO_INTERPRET_MODEL, DEFAULT_HOSTED);
+export const CURATOR_MODELS = modelList(process.env.CURIO_CURATOR_MODEL, DEFAULT_CURATOR);
+export const INTERPRET_MODELS = modelList(process.env.CURIO_INTERPRET_MODEL, DEFAULT_INTERPRET);
 
 /** Local Claude Code model aliases: the curator wants judgment, the one-shot
  *  describe compile wants speed. */

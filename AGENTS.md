@@ -12,6 +12,7 @@ npx tsc --noEmit         # typecheck
 npm run build            # what Vercel runs — do this before pushing to main
 npm run eval:router      # score the input router on src/lib/router/cases.json
 npm run record:examples  # re-record the homepage examples (needs the dev server + local Claude)
+npm run bench:models -- --env <path/.env.local> <model …>   # hosted models end to end (needs npm run build + OPENROUTER_API_KEY; spends real credit)
 ```
 
 Node 22, **npm** (not pnpm). After a dep change or a directory move, `rm -rf .next` before restarting (stale Turbopack manifest → "module is not a function" errors).
@@ -131,7 +132,7 @@ Interaction notes: `/` focuses the input from anywhere; Backspace in an empty co
 
 The app was called Loupe until September 2026. The Vercel project, production domain, and GitHub repo (`shaunlatip/loupe`) still use the old name; collections saved under `loupe.collections.v1` move to `curio.collections.v1` on first load.
 
-Production is **https://loupe-xi.vercel.app** — project `loupe` in team "Shaun's projects" (Hobby), GitHub-linked: **every push to `main` builds and deploys.** Preview deployments are SSO-protected, so verify on production. Env vars (then redeploy): `OPENROUTER_API_KEY` for Curio/describe (paid-but-cheap default models, ~$0.01 a turn; `:free` models share a daily cap real traffic exhausts); optional model overrides above; optional `CURIO_LLM_ENGINE=gateway`; optional `HARVARD_API_KEY`. Hobby caps functions at **60s** — raise `maxDuration` only on Pro.
+Production is **https://loupe-xi.vercel.app** — project `loupe` in team "Shaun's projects" (Hobby), GitHub-linked: **every push to `main` builds and deploys.** Preview deployments are SSO-protected, so verify on production. Env vars (then redeploy): `OPENROUTER_API_KEY` for Curio/describe (default curator Claude Haiku 4.5 with Gemini 3.1 Flash-Lite as fallback, about $0.03 a turn; chosen with `npm run bench:models`, which runs seven turns per model through the real route on a production build and reports pass/fail, time, comments and spend; `:free` models are rate-limited upstream and unusable for public traffic). **If `CURIO_CURATOR_MODEL` is set on Vercel it overrides the default: remove it or set it to the default.** optional model overrides above; optional `CURIO_LLM_ENGINE=gateway`; optional `HARVARD_API_KEY`. Hobby caps functions at **60s** — raise `maxDuration` only on Pro.
 
 **AIC egress rules** (Cloudflare in front of `www.artic.edu/iiif`): it 403s **any cross-origin Referer** and **any datacenter IP**. So every museum `<img>` carries `referrerPolicy="no-referrer"`; `source-egress.ts` names such hosts and the browser fetches their bytes (calm POST, single-work Download). On Vercel, collection zips skip AIC works, and Curio can't view AIC thumbnails (it still searches and presents them by metadata; the prompt tells it so).
 
