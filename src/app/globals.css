@@ -33,7 +33,7 @@
   --color-accent-foreground: #ffffff;
 
   /* type */
-  --font-sans: var(--font-instrument), "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-lunchtype), "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-geist-mono), "SF Mono", monospace;
 
   /* radius: zero everywhere — stray rounded-* classes render square */

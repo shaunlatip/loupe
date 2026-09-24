@@ -4,4 +4,4 @@ Read **[AGENTS.md](./AGENTS.md)** first — it's the full handoff (what Loupe is
 
 Quick start: `npm run dev` → http://localhost:4050 · `npx tsc --noEmit`. npm, not pnpm. `rm -rf .next` after a move/dep change.
 
-Design law: flat museum register — zero radius, no shadows, ink-on-paper, one accent `#2400ff`, Instrument Sans, sentence case. Don't add image editing (that's shader-lab). Don't add a second page without removing something.
+Design law: flat museum register — zero radius, no shadows, ink-on-paper, one accent `#2400ff`, Lunchtype, sentence case. Don't add image editing (that's shader-lab). Don't add a second page without removing something.
