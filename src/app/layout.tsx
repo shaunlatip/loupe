@@ -25,11 +25,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "loupe",
+  title: "curio",
   description:
     "Search, curate and download public-domain paintings from five museums' open collections, sized for hero backdrops.",
   openGraph: {
-    title: "loupe",
+    title: "curio",
     description:
       "Public-domain paintings from five museums' open collections, sized for hero backdrops.",
     type: "website",

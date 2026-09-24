@@ -5,7 +5,7 @@ import { getCalm, getCalmFromBytes } from "@/lib/calm-server";
 // well under this; the limit just keeps the route from being a free decoder.
 const MAX_UPLOAD_BYTES = 3_000_000;
 
-// Only the museum image hosts Loupe's adapters actually emit — this route
+// Only the museum image hosts Curio's adapters actually emit — this route
 // fetches whatever URL it's given server-side, so pin it to known thumbnail
 // hosts rather than acting as an open image-fetch proxy.
 const ALLOWED_HOSTS = new Set([

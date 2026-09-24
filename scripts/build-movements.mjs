@@ -7,7 +7,7 @@
 //
 //   node scripts/build-movements.mjs
 //
-// This is NOT part of the app runtime — Loupe never fetches Wikidata live.
+// This is NOT part of the app runtime — Curio never fetches Wikidata live.
 // It's backlog item #1 from AGENTS.md ("the big lever"): Met/CMA/Rijks have
 // no art-movement field, only AIC does. This lookup lets the app join any
 // museum's artist string against Wikidata's movement data client-side (see
@@ -48,7 +48,7 @@ import path from "node:path";
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 // WDQS blocks requests with no / generic User-Agent — this must stay descriptive.
 const USER_AGENT =
-  "loupe-movement-builder/1.0 (personal local design tool; single manual run, not a bot)";
+  "curio-movement-builder/1.0 (personal local design tool; single manual run, not a bot)";
 
 const OUT_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

@@ -32,7 +32,7 @@ async function analyzeBytes(bytes: Buffer): Promise<CalmResult> {
 async function fetchAndAnalyze(url: string): Promise<CalmResult> {
   const res = await fetch(url, {
     headers: {
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) loupe/1.0",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curio/1.0",
       accept: "image/*,*/*;q=0.8",
     },
   });

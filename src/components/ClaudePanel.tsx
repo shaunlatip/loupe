@@ -7,7 +7,7 @@ import type { Artwork } from "@/lib/types";
  * The curator panel: a bottom-sticking transcript of one conversation with
  * the museum agent. Modelled on the agentic-chat patterns in AI Elements
  * (Conversation / Message / Tool / Suggestion / Loader) and beautifului
- * (tool chips with live status, elapsed time), rendered in Loupe's flat
+ * (tool chips with live status, elapsed time), rendered in Curio's flat
  * register: no bubbles with radius, no avatars, ink rules and captions.
  *
  * Turn kinds, in stream order:

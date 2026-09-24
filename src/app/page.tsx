@@ -255,7 +255,7 @@ async function triggerDownload(body: {
     }
   }
   const cd = res.headers.get("content-disposition") ?? "";
-  const filename = /filename="(.+?)"/.exec(cd)?.[1] ?? "loupe-export";
+  const filename = /filename="(.+?)"/.exec(cd)?.[1] ?? "curio-export";
   const failed = Number(res.headers.get("x-export-failed") ?? "0");
   saveBlob(await res.blob(), filename);
   return failed > 0
@@ -310,7 +310,7 @@ export default function Home() {
   // one-line confirmation inside the detail panel after Save / Remove
   const [saveNote, setSaveNote] = useState<string | undefined>();
 
-  // Collections live in localStorage (Loupe deploys to a read-only host) — read
+  // Collections live in localStorage (Curio deploys to a read-only host) — read
   // them once on mount, client-side only.
   useEffect(() => {
     setCollections(listCollections());
@@ -761,7 +761,7 @@ export default function Home() {
                 title="Back to the start"
                 className="press-none text-inherit"
               >
-                loupe
+                curio
               </button>
             </h1>
             <div className="flex items-center gap-3">
