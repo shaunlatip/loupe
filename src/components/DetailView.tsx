@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
 import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/thread/types";
+import { artworkTint } from "@/lib/tint";
+import { Spinner } from "./thread/Glyph";
 import Icon from "./Icon";
 import { sourceLabel } from "./SourceBadge";
 
@@ -14,6 +16,7 @@ export default function DetailView({
   onPrev,
   onNext,
   position,
+  preload,
   actions,
   onAttach,
 }: {
@@ -24,6 +27,8 @@ export default function DetailView({
   onNext?: () => void;
   /** 1-based index and total in the current grid, for the counter */
   position?: { index: number; total: number };
+  /** the neighbours' full-size URLs, fetched once this one is sharp */
+  preload?: string[];
   /** slot for save/export affordances added in later slices */
   actions?: React.ReactNode;
   /** pin the artist or a movement to the next message */
@@ -35,16 +40,70 @@ export default function DetailView({
   const [showSafeZone, setShowSafeZone] = useState(false);
 
   // Blur-up gate: the hi-res stays hidden until it has *fully* decoded, so it
-  // never paints in top-to-bottom. Reset whenever the shown work changes so
-  // switching artworks re-runs soft→sharp instead of flashing a stale image.
-  const [hiresLoaded, setHiresLoaded] = useState(false);
+  // never paints in top-to-bottom. All of this is keyed on the image URL, so
+  // stepping to another work starts it soft→sharp again with no stale frame.
+  const src = artwork.imageHires;
+  const [loadedSrc, setLoadedSrc] = useState<string>();
+  const [failedSrc, setFailedSrc] = useState<string>();
+  // Already decoded (browser cache, or warmed on hover): show it at once, no
+  // focus pull, which would read as a flicker on an image that never went.
+  const [instantSrc, setInstantSrc] = useState<string>();
+  const hiresFailed = failedSrc === src;
+  const hiresLoaded = loadedSrc === src || hiresFailed;
+  const instant = instantSrc === src;
   // Works whose museum reports no dimensions learn their ratio from the
-  // decoded image, then size exactly like the rest (see the frame below).
-  const [naturalRatio, setNaturalRatio] = useState<number | undefined>();
+  // thumbnail (the grid already decoded it, so usually at once), then from
+  // the full image, and size exactly like the rest (see the frame below).
+  const [measured, setMeasured] = useState<{ src: string; ratio: number }>();
+  const naturalRatio = measured?.src === src ? measured.ratio : undefined;
+  const hasDims = Boolean(artwork.dims?.width && artwork.dims?.height);
+  // The full image already in hand when it mounts (stable per image, so it
+  // runs once, not on every render). "Loaded" waits for decode, not just the
+  // bytes: a large image that's complete but still decoding paints nothing,
+  // and the preview must hold the frame until it can.
+  const hiresRef = useCallback(
+    (el: HTMLImageElement | null) => {
+      if (!el || !el.complete || el.naturalWidth === 0) return;
+      if (!hasDims) setMeasured({ src, ratio: el.naturalWidth / el.naturalHeight });
+      void el
+        .decode()
+        .catch(() => undefined)
+        .then(() => {
+          setInstantSrc(src);
+          setLoadedSrc(src);
+        });
+    },
+    [src, hasDims],
+  );
   useEffect(() => {
-    setHiresLoaded(false);
-    setNaturalRatio(undefined);
-  }, [artwork.imageHires]);
+    if (hasDims) return;
+    const probe = new Image();
+    probe.referrerPolicy = "no-referrer";
+    probe.onload = () => {
+      if (probe.naturalWidth > 0)
+        setMeasured((m) => (m?.src === src ? m : { src, ratio: probe.naturalWidth / probe.naturalHeight }));
+    };
+    probe.src = artwork.imageThumb;
+    return () => {
+      probe.onload = null;
+    };
+  }, [src, artwork.imageThumb, hasDims]);
+
+  // Once this work is sharp, fetch its neighbours' full images so ← / →
+  // land sharp too. Skipped on metered connections.
+  const preloadKey = preload?.join("\n") ?? "";
+  useEffect(() => {
+    if (!hiresLoaded || !preloadKey) return;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (conn?.saveData) return;
+    for (const src of preloadKey.split("\n")) {
+      const img = new Image();
+      img.referrerPolicy = "no-referrer";
+      img.src = src;
+    }
+  }, [hiresLoaded, preloadKey]);
+
+  const tint = artworkTint(artwork);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -130,15 +189,21 @@ export default function DetailView({
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-wash p-6 [container-type:size]">
+        {/* The wall behind the work carries a whisper of its own colour
+            (src/lib/tint.ts), or the plain wash when it has none. */}
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-wash p-6 transition-[background-color] duration-300 [container-type:size]"
+          style={tint ? { backgroundColor: tint } : undefined}
+        >
           {/* The frame shrink-wraps to the picture's own rendered box (no
               separate letterbox), so percentage-positioned children land on
-              the displayed pixels. When dims are known we size that box with
-              container-query units — min(fit-by-width, fit-by-height) — which
-              reserves the exact contain rect before the hi-res loads; the
-              thumb underlay then fills it. Without dims the hi-res sizes the
-              box on decode (in-flow), same as before. Border lives on the
-              frame so it hugs the picture in both paths. */}
+              the displayed pixels. With a ratio (the museum's dims, or the
+              thumbnail's) we size that box with container-query units —
+              min(fit-by-width, fit-by-height) — which reserves the exact
+              contain rect before the hi-res loads; the thumb underlay then
+              fills it. Without one the hi-res sizes the box on decode
+              (in-flow). Border lives on the frame so it hugs the picture in
+              both paths. */}
           <div
             className="relative inline-block max-h-full max-w-full border border-ink"
             style={
@@ -150,60 +215,83 @@ export default function DetailView({
                 : undefined
             }
           >
+            {ratio && !hiresLoaded && <RegisterMarks />}
             {ratio && (
               /* LQIP: the grid already decoded imageThumb, so it paints
-                 instantly; blurred so the upscale reads as intentional. The
+                 instantly; blurred so the upscale reads as intentional (and
+                 sharp, as the fallback, if the full image fails). The
                  overflow-hidden layer clips the blur to the frame so it never
                  haloes past the ink border (no soft glow in a flat register). */
               <div aria-hidden className="absolute inset-0 overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
+                  key={artwork.imageThumb}
                   src={artwork.imageThumb}
                   alt=""
                   referrerPolicy="no-referrer"
-                  className={`h-full w-full object-contain blur-lg transition-opacity duration-150 ${
-                    hiresLoaded ? "opacity-0" : "opacity-100"
-                  }`}
+                  // scaled a touch while blurred: a blur samples the empty
+                  // space past the image's edges and would fade them dark
+                  className={`h-full w-full object-contain transition-opacity duration-300 ${
+                    hiresFailed ? "" : "scale-110 blur-lg"
+                  } ${hiresLoaded && !hiresFailed ? "opacity-0" : "opacity-100"}`}
                 />
               </div>
             )}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              key={artwork.imageHires}
-              src={artwork.imageHires}
-              alt={artwork.title}
-              decoding="async"
-              referrerPolicy="no-referrer"
-              ref={(el) => {
-                if (el?.complete && el.naturalWidth > 0) {
-                  setHiresLoaded(true);
-                  if (!width || !height) setNaturalRatio(el.naturalWidth / el.naturalHeight);
-                }
-              }}
-              onLoad={(e) => {
-                const el = e.currentTarget;
-                setHiresLoaded(true);
-                if ((!width || !height) && el.naturalWidth > 0) {
-                  setNaturalRatio(el.naturalWidth / el.naturalHeight);
-                }
-              }}
-              onError={() => setHiresLoaded(true)}
-              // Without a ratio the image sizes the frame in-flow; container
-              // units (not %) cap it, since a percentage max-height inside
-              // this flex box resolves against nothing and a tall work would
-              // spill past the viewport.
-              style={ratio ? undefined : { maxWidth: "100cqw", maxHeight: "100cqh" }}
-              className={
-                ratio
-                  ? `absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
-                      hiresLoaded ? "opacity-100" : "opacity-0"
-                    }`
-                  : "block object-contain"
-              }
-            />
+            {/* The full image pulls into focus over the preview: blur and a
+                hair of scale settle together (globals.css .animate-focus-pull),
+                clipped to the frame like the preview. */}
+            <div className={ratio ? "absolute inset-0 overflow-hidden" : "block overflow-hidden"}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={src}
+                src={src}
+                alt={artwork.title}
+                decoding="async"
+                referrerPolicy="no-referrer"
+                ref={hiresRef}
+                onLoad={(e) => {
+                  const el = e.currentTarget;
+                  if (!hasDims && el.naturalWidth > 0) {
+                    setMeasured({ src, ratio: el.naturalWidth / el.naturalHeight });
+                  }
+                  void el
+                    .decode()
+                    .catch(() => undefined)
+                    .then(() => setLoadedSrc(src));
+                }}
+                onError={() => setFailedSrc(src)}
+                // Without a ratio the image sizes the frame in-flow; container
+                // units (not %) cap it, since a percentage max-height inside
+                // this flex box resolves against nothing and a tall work would
+                // spill past the viewport.
+                style={ratio ? undefined : { maxWidth: "100cqw", maxHeight: "100cqh" }}
+                className={`object-contain ${ratio ? "h-full w-full" : "block"} ${
+                  hiresFailed
+                    ? "invisible"
+                    : !hiresLoaded
+                      ? ratio
+                        ? "opacity-0"
+                        : ""
+                      : instant
+                        ? ""
+                        : "animate-focus-pull"
+                }`}
+              />
+            </div>
             {!hiresLoaded && (
+              <span className="caption after-a-beat absolute right-2 bottom-2 flex items-center gap-1.5 bg-paper px-1.5 py-0.5 text-ink">
+                <Spinner phase="look" size={9} className="text-accent" />
+                Loading full size
+                {width && height ? (
+                  <span className="tabular text-muted-foreground">
+                    {width.toLocaleString()} × {height.toLocaleString()}
+                  </span>
+                ) : null}
+              </span>
+            )}
+            {hiresFailed && (
               <span className="caption absolute right-2 bottom-2 bg-paper px-1.5 py-0.5">
-                loading full size…
+                Full size didn&rsquo;t load, showing the preview
               </span>
             )}
             {hasSafeZone && showSafeZone && (
@@ -365,5 +453,19 @@ export default function DetailView({
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Four crop marks just outside the frame's corners while the full image is
+ *  on its way: the picture's box is known, the picture isn't here yet. */
+function RegisterMarks() {
+  const mark = "register-mark pointer-events-none absolute h-2.5 w-2.5 border-ink";
+  return (
+    <span aria-hidden className="after-a-beat">
+      <span className={`${mark} -top-3.5 -left-3.5 border-t border-l`} />
+      <span className={`${mark} -top-3.5 -right-3.5 border-t border-r`} />
+      <span className={`${mark} -bottom-3.5 -left-3.5 border-b border-l`} />
+      <span className={`${mark} -right-3.5 -bottom-3.5 border-r border-b`} />
+    </span>
   );
 }

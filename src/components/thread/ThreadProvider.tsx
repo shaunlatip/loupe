@@ -15,14 +15,17 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { classifyRules, type RouteDecision } from "@/lib/router/rules";
 import { EXAMPLES } from "@/lib/examples";
+import { loadRecording } from "@/lib/example-recordings";
 import type {
   Attachment,
   CurioUIMessage,
   ExhibitData,
   Route,
   SearchEntryData,
+  StepData,
   WallContext,
 } from "@/lib/thread/types";
+import { useSteadyText } from "./Live";
 import { deriveStatus, exhibitOf, isWorking, statusText, type CuratorStatus } from "./status";
 
 /**
@@ -55,6 +58,8 @@ interface ThreadContextValue {
   messages: CurioUIMessage[];
   chatStatus: ReturnType<typeof useChat<CurioUIMessage>>["status"];
   curator: CuratorStatus;
+  /** statusText(curator), held long enough per change to be read */
+  curatorText: string;
   /** the exhibit the wall is showing, if it came from the thread */
   wallExhibitId?: string;
   open: boolean;
@@ -189,6 +194,9 @@ export default function ThreadProvider({
 
   const [stopped, setStopped] = useState(false);
   const [pendingSince, setPendingSince] = useState<number>();
+  // A recorded example playing back reads as a live turn everywhere.
+  const [replaying, setReplaying] = useState(false);
+  const liveStatus = replaying ? "streaming" : chatStatus;
 
   // Tell the page when a turn is over, however it ended.
   const wasBusy = useRef(false);
@@ -198,9 +206,11 @@ export default function ThreadProvider({
     wasBusy.current = nowBusy;
   }, [chatStatus]);
   const curator = useMemo(
-    () => deriveStatus(messages, chatStatus, { stopped, error: parseError(error), pendingSince }),
-    [messages, chatStatus, stopped, error, pendingSince],
+    () => deriveStatus(messages, liveStatus, { stopped, error: parseError(error), pendingSince }),
+    [messages, liveStatus, stopped, error, pendingSince],
   );
+  // One held line for every surface that shows it, so they never disagree.
+  const curatorText = useSteadyText(statusText(curator));
 
   // — open / mode / width
 
@@ -250,7 +260,7 @@ export default function ThreadProvider({
 
   // — routing & sending
 
-  const busy = chatStatus === "submitted" || chatStatus === "streaming";
+  const busy = liveStatus === "submitted" || liveStatus === "streaming";
   const classify = useCallback(
     (text: string) =>
       classifyRules(text, {
@@ -305,19 +315,31 @@ export default function ThreadProvider({
     [attachments, busy, classify, sendMessage, setMessages],
   );
 
+  const replayTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const cancelReplay = useCallback(() => {
+    replayTimers.current.forEach(clearTimeout);
+    replayTimers.current = [];
+    setReplaying(false);
+  }, []);
+
   const stop = useCallback(() => {
     setStopped(true);
+    if (replaying) {
+      cancelReplay();
+      handlersRef.current.onTurnEnd();
+    }
     void stopChat();
-  }, [stopChat]);
+  }, [stopChat, replaying, cancelReplay]);
 
   const reset = useCallback(() => {
+    cancelReplay();
     void stopChat();
     setMessages([]);
     setAttachments([]);
     setStopped(false);
     setWallExhibitId(undefined);
     focusComposer();
-  }, [stopChat, setMessages, focusComposer]);
+  }, [cancelReplay, stopChat, setMessages, focusComposer]);
 
   const retry = useCallback(() => {
     setStopped(false);
@@ -338,16 +360,117 @@ export default function ThreadProvider({
     [messages],
   );
 
+  /**
+   * Play a recorded run (public/examples/<slug>.json) through the same
+   * components a live turn uses, compressed to a couple of seconds: steps
+   * appear running and settle, look strips fill in image by image, the
+   * exhibit goes up on the wall. The message keeps the run's real timings
+   * and is marked recorded; the thread carries on live from there.
+   */
+  const replay = useCallback(
+    async (slug: string, prompt: string): Promise<boolean> => {
+      const rec = await loadRecording(slug);
+      if (!rec) return false;
+
+      const userId = localId("u");
+      const asstId = localId("a");
+      const t0 = Date.now();
+      setOpenState(true);
+      setStopped(false);
+      setReplaying(true);
+      setPendingSince(t0);
+      handlersRef.current.onTurnStart();
+      setMessages((m) => [
+        ...m,
+        { id: userId, role: "user", parts: [{ type: "text", text: prompt }], metadata: { route: "curate" } },
+        { id: asstId, role: "assistant", parts: [], metadata: { startedAt: t0, recorded: true } },
+      ]);
+
+      const TOTAL = 2600;
+      const last = Math.max(1, ...rec.parts.map((p) => p.doneAt ?? p.at));
+      const scale = Math.min(1, TOTAL / last);
+      const at = (ms: number) => Math.round(ms * scale);
+      const later = (ms: number, fn: () => void) => {
+        replayTimers.current.push(setTimeout(fn, ms));
+      };
+      const edit = (fn: (parts: CurioUIMessage["parts"]) => CurioUIMessage["parts"]) =>
+        setMessages((m) => m.map((x) => (x.id === asstId ? { ...x, parts: fn(x.parts) } : x)));
+
+      for (const p of rec.parts) {
+        const start = at(p.at);
+        if (p.type === "text") {
+          later(start, () => edit((parts) => [...parts, { type: "text", text: p.text ?? "", state: "done" }]));
+        } else if (p.type === "data-step") {
+          const final = p.data as StepData;
+          const running: StepData = {
+            ...final,
+            phase: "running",
+            items: final.kind === "look" ? final.items?.map((i) => ({ ...i, state: "loading" as const })) : undefined,
+          };
+          const put = (data: StepData) =>
+            edit((parts) => {
+              const i = parts.findIndex((x) => x.type === "data-step" && x.id === p.id);
+              const part = { type: "data-step" as const, id: p.id, data };
+              return i === -1 ? [...parts, part] : parts.map((x, j) => (j === i ? part : x));
+            });
+          const end = Math.max(start + 120, at(p.doneAt ?? p.at));
+          later(start, () => put(running));
+          // look strips fill in one image at a time across the step
+          if (final.kind === "look" && final.items?.length) {
+            final.items.forEach((_, k) =>
+              later(start + ((end - start) * (k + 1)) / (final.items!.length + 1), () =>
+                put({
+                  ...running,
+                  items: final.items!.map((it, j) => (j <= k ? it : { ...it, state: "loading" })),
+                }),
+              ),
+            );
+          }
+          later(end, () => put(final));
+        } else if (p.type === "data-exhibit") {
+          later(start, () => {
+            edit((parts) => [...parts, { type: "data-exhibit", id: p.id, data: p.data as ExhibitData }]);
+            handlersRef.current.onExhibit(p.data as ExhibitData);
+            setWallExhibitId(p.id);
+          });
+        }
+      }
+      later(at(last) + 150, () => {
+        setMessages((m) =>
+          m.map((x) =>
+            x.id === asstId
+              ? {
+                  ...x,
+                  metadata: {
+                    ...x.metadata,
+                    finishedAt: t0 + rec.durationMs,
+                    model: rec.metadata?.model,
+                  },
+                }
+              : x,
+          ),
+        );
+        replayTimers.current = [];
+        setReplaying(false);
+        handlersRef.current.onTurnEnd();
+      });
+      return true;
+    },
+    [setMessages],
+  );
+
   /** A starting point from the wall or the empty thread: always a curator
-   *  brief. (Recorded runs replay instantly; see replayExample below.) */
+   *  brief, replayed from its recording when there is one. */
   const runExample = useCallback(
     (slug: string) => {
       const ex = EXAMPLES.find((e) => e.slug === slug);
       if (!ex || busy) return;
       setOpenState(true);
-      submit(ex.prompt, "curate");
+      void replay(ex.slug, ex.prompt).then((ok) => {
+        if (!ok) submit(ex.prompt, "curate");
+      });
     },
-    [busy, submit],
+    [busy, replay, submit],
   );
 
   // — "unseen": a turn finished while the thread wasn't showing
@@ -363,16 +486,17 @@ export default function ThreadProvider({
 
   useEffect(() => {
     const base = "Curio";
-    if (isWorking(curator)) document.title = `${statusText(curator)} · ${base}`;
+    if (isWorking(curator)) document.title = `${curatorText} · ${base}`;
     else if (unseen && curator.exhibit) document.title = `✓ ${curator.exhibit.title} · ${base}`;
     else document.title = base;
-  }, [curator, unseen]);
+  }, [curator, curatorText, unseen]);
 
   const value = useMemo<ThreadContextValue>(
     () => ({
       messages,
-      chatStatus,
+      chatStatus: liveStatus,
       curator,
+      curatorText,
       wallExhibitId,
       open,
       setOpen,
@@ -396,8 +520,9 @@ export default function ThreadProvider({
     }),
     [
       messages,
-      chatStatus,
+      liveStatus,
       curator,
+      curatorText,
       wallExhibitId,
       open,
       setOpen,

@@ -1,5 +1,5 @@
 import { searchSources } from "@/lib/adapters";
-import type { SearchQuery, SearchResponse, SourceId } from "@/lib/types";
+import type { Artwork, SearchQuery, SearchResponse, SourceId } from "@/lib/types";
 
 /**
  * A small in-memory cache in front of the museum fanout, shared by /api/search
@@ -16,6 +16,31 @@ const MAX_ENTRIES = 200;
 
 const store = new Map<string, { at: number; ttl: number; value: SearchResponse }>();
 const inflight = new Map<string, Promise<SearchResponse>>();
+
+/**
+ * Every record the fanout has returned lately, by id. A later curator turn
+ * that refers to a work by id (from the wall, or an earlier exhibit) finds it
+ * here instead of asking the museum again, which matters when a museum API is
+ * slow or refusing this server (the Met's has blocked with 403s under load).
+ */
+const MAX_WORKS = 5000;
+const works = new Map<string, Artwork>();
+
+export function recentArtwork(id: string): Artwork | undefined {
+  return works.get(id);
+}
+
+function remember(list: Artwork[]) {
+  for (const a of list) {
+    works.delete(a.id);
+    works.set(a.id, a);
+  }
+  while (works.size > MAX_WORKS) {
+    const oldest = works.keys().next().value;
+    if (oldest === undefined) break;
+    works.delete(oldest);
+  }
+}
 
 /** Stable key: sorted sources + the query with its object keys sorted. */
 function keyOf(sources: SourceId[], q: SearchQuery): string {
@@ -50,6 +75,7 @@ export async function cachedSearch(
 
   const run = searchSources(sources, q)
     .then((value) => {
+      remember(value.artworks);
       store.set(key, {
         at: Date.now(),
         ttl: value.errors.length ? PARTIAL_TTL_MS : TTL_MS,

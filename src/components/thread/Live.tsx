@@ -17,6 +17,32 @@ export function useNow(on: boolean, ms = 1000): number {
   return now;
 }
 
+/**
+ * A status line's text, held for at least `ms` per value. Steps can change
+ * every few milliseconds (parallel searches, a replayed run); each change
+ * restarts the line's fade, so without a floor it would never finish fading
+ * in and the line would read as blank. The latest value always lands.
+ */
+export function useSteadyText(text: string, ms = 450): string {
+  const [shown, setShown] = useState(text);
+  const [since, setSince] = useState(0);
+  useEffect(() => {
+    if (text === shown) return;
+    const wait = since + ms - Date.now();
+    if (wait <= 0) {
+      setShown(text);
+      setSince(Date.now());
+      return;
+    }
+    const t = setTimeout(() => {
+      setShown(text);
+      setSince(Date.now());
+    }, wait);
+    return () => clearTimeout(t);
+  }, [text, shown, since, ms]);
+  return shown;
+}
+
 export function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;

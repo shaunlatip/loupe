@@ -28,6 +28,8 @@ import FilterRow, { SortMenu } from "@/components/FilterRow";
 import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import HomeHero from "@/components/HomeHero";
+import examplePreviews from "@/data/examples-index.json";
+import { exhibitTint } from "@/lib/tint";
 import Icon from "@/components/Icon";
 import ScrollTopButton from "@/components/ScrollTopButton";
 import { sourceLabel } from "@/components/SourceBadge";
@@ -530,6 +532,12 @@ export default function Home() {
 
   const sortAside = useMemo(() => <SortMenu sort={sort} onSort={chooseSort} />, [sort, chooseSort]);
 
+  // An exhibit's wall label takes a whisper of the show's shared colour.
+  const labelStyle = useMemo(() => {
+    const tint = results.origin === "curio" ? exhibitTint(results.artworks) : undefined;
+    return tint ? { backgroundColor: tint } : undefined;
+  }, [results.origin, results.artworks]);
+
   const facts = useMemo(() => {
     if (reading) {
       return (
@@ -627,6 +635,7 @@ export default function Home() {
                 loading={loading}
                 facts={facts}
                 aside={sortAside}
+                labelStyle={labelStyle}
                 emptyHint={
                   results.origin === "collection" ? (
                     <span>Open any work and press Save to add it here.</span>
@@ -646,7 +655,7 @@ export default function Home() {
         ) : (
           <HomeHero
             sources={ALL_SOURCES}
-            previews={{}}
+            previews={examplePreviews}
             onCategory={(id) => {
               setActiveCategories([id]);
               runCategories([id]);
@@ -665,6 +674,13 @@ export default function Home() {
           onPrev={openPrev}
           onNext={openNext}
           position={openIndex >= 0 ? { index: openIndex + 1, total: displayArtworks.length } : undefined}
+          preload={
+            openIndex >= 0
+              ? [displayArtworks[openIndex + 1], displayArtworks[openIndex - 1]]
+                  .filter((a): a is Artwork => Boolean(a))
+                  .map((a) => a.imageHires)
+              : undefined
+          }
           saved={collectionSummaries.some((c) => c.has)}
           saveOpen={saveOpen}
           onToggleSave={() => setSaveOpen((v) => !v)}
@@ -812,6 +828,7 @@ function DetailPanel({
   onPrev,
   onNext,
   position,
+  preload,
   saved,
   saveOpen,
   onToggleSave,
@@ -828,6 +845,7 @@ function DetailPanel({
   onPrev?: () => void;
   onNext?: () => void;
   position?: { index: number; total: number };
+  preload?: string[];
   saved: boolean;
   saveOpen: boolean;
   onToggleSave: () => void;
@@ -853,6 +871,7 @@ function DetailPanel({
       onPrev={onPrev}
       onNext={onNext}
       position={position}
+      preload={preload}
       onAttach={(a) => {
         attach(a);
         toThread();

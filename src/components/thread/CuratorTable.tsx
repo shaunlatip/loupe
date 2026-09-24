@@ -3,7 +3,7 @@
 import type { StepData } from "@/lib/thread/types";
 import { Spinner } from "./Glyph";
 import { Elapsed } from "./Live";
-import { isWorking, statusText } from "./status";
+import { isWorking } from "./status";
 import { useThread } from "./ThreadProvider";
 
 /**
@@ -15,7 +15,7 @@ import { useThread } from "./ThreadProvider";
  * the place of a skeleton grid.
  */
 export default function CuratorTable({ emptyWall = false }: { emptyWall?: boolean }) {
-  const { messages, curator, open, mode } = useThread();
+  const { messages, curator, curatorText: text, open, mode } = useThread();
   const threadShowing = open && mode === "docked";
   if (!isWorking(curator) || (threadShowing && !emptyWall)) return null;
 
@@ -41,8 +41,8 @@ export default function CuratorTable({ emptyWall = false }: { emptyWall?: boolea
           <Spinner phase={curator.phase} size={12} />
         </span>
         <span className="caption text-ink">On Curio&rsquo;s table</span>
-        <span key={statusText(curator)} className="animate-fade text-ink/70">
-          · {statusText(curator)}
+        <span key={text} className="animate-fade text-ink/70">
+          · {text}
         </span>
         <Elapsed since={curator.turnStartedAt} className="ml-auto text-muted-foreground" />
       </div>

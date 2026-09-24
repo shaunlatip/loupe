@@ -1,4 +1,6 @@
 import type { ModelMessage } from "ai";
+import { isMuseumImageUrl } from "@/lib/image-hosts";
+import type { Artwork, SourceId } from "@/lib/types";
 import type { Attachment, CurioUIMessage, WallContext } from "@/lib/thread/types";
 
 /**
@@ -61,6 +63,70 @@ function assistantText(m: CurioUIMessage): string {
     }
   }
   return out.join("\n\n");
+}
+
+const SOURCES = new Set<SourceId>(["aic", "cma", "met", "rijks", "smk", "mia", "harvard"]);
+const str = (v: unknown, max: number): string | undefined =>
+  typeof v === "string" ? v.slice(0, max) : undefined;
+const num = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) ? v : undefined;
+
+/**
+ * An artwork record as the browser sent it back (inside an earlier exhibit),
+ * rebuilt field by field so nothing but a well-formed record survives: the id
+ * must match its source, both image URLs must be on a museum image host (the
+ * server fetches thumbnails from them), strings are capped. Only used when the
+ * museum itself can't be asked again (see MuseumContext.known).
+ */
+export function artworkFromClient(raw: unknown): Artwork | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id, 120);
+  if (!id || !ARTWORK_ID.test(id)) return null;
+  const [source, nativeId] = id.split(":") as [SourceId, string];
+  if (!SOURCES.has(source) || r.source !== source) return null;
+  if (!isMuseumImageUrl(r.imageThumb) || !isMuseumImageUrl(r.imageHires)) return null;
+  const dims = r.dims as Record<string, unknown> | undefined;
+  const color = r.color as Record<string, unknown> | undefined;
+  const h = num(color?.h);
+  const s = num(color?.s);
+  const l = num(color?.l);
+  return {
+    id,
+    source,
+    nativeId,
+    title: str(r.title, 300) ?? "Untitled",
+    artist: str(r.artist, 200) ?? "",
+    date: str(r.date, 80) ?? "",
+    imageThumb: r.imageThumb,
+    imageHires: r.imageHires,
+    license: str(r.license, 40) ?? "",
+    sourceUrl: str(r.sourceUrl, 500) ?? "",
+    accession: str(r.accession, 80),
+    medium: str(r.medium, 300),
+    dims: dims ? { width: num(dims.width), height: num(dims.height) } : undefined,
+    color: h !== undefined && s !== undefined && l !== undefined ? { h, s, l } : undefined,
+    movements: Array.isArray(r.movements)
+      ? r.movements.filter((m): m is string => typeof m === "string").slice(0, 6).map((m) => m.slice(0, 60))
+      : undefined,
+  };
+}
+
+/** The works of every exhibit earlier in the thread, validated. */
+export function exhibitArtworks(messages: CurioUIMessage[]): Artwork[] {
+  const out: Artwork[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    for (const p of m.parts) {
+      if (p.type !== "data-exhibit" || !Array.isArray(p.data?.artworks)) continue;
+      for (const raw of p.data.artworks.slice(0, 40)) {
+        const a = artworkFromClient(raw);
+        if (a) out.push(a);
+        if (out.length >= 200) return out;
+      }
+    }
+  }
+  return out;
 }
 
 /** Validated artwork ids attached to a message (the route looks them up). */

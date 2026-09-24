@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
-  hasToolCall,
   isStepCount,
   smoothStream,
   streamText,
@@ -19,7 +18,7 @@ import {
   hostedModel,
   modelLabel,
 } from "@/lib/ai/models";
-import { attachedArtworkIds, toModelMessages } from "@/lib/agent/history";
+import { attachedArtworkIds, exhibitArtworks, toModelMessages } from "@/lib/agent/history";
 import { createMuseumContext, fallbackExhibit, type MuseumContext } from "@/lib/agent/museum";
 import { CURATOR_PROMPT, HOSTED_NOTE } from "@/lib/agent/prompt";
 import { MCP_TOOL_NAMES, museumMcpServer, museumTools } from "@/lib/agent/tools";
@@ -97,6 +96,9 @@ export async function POST(req: NextRequest) {
             .catch(() => undefined),
         ),
       );
+      // Earlier exhibits' works, so a follow-up can keep, reorder or view
+      // them without asking each museum again (see MuseumContext.known).
+      for (const a of exhibitArtworks(messages)) ctx.known.set(a.id, a);
 
       const meta =
         engine === "claude"
@@ -150,7 +152,9 @@ async function runHosted(
     tools: museumTools(ctx),
     providerOptions: providerOptions as never,
     maxOutputTokens: 2048,
-    stopWhen: [isStepCount(MAX_STEPS), hasToolCall("present_selection")],
+    // Stop once an exhibit is up (not at any present_selection call: one that
+    // named works that couldn't load is handed back for another try).
+    stopWhen: [isStepCount(MAX_STEPS), () => Boolean(ctx.exhibit)],
     prepareStep: ({ stepNumber, messages: stepMessages }) => {
       const out: { messages?: ModelMessage[]; toolChoice?: { type: "tool"; toolName: "present_selection" } } = {};
       // Thumbnails from view_artworks reach the model as a user message
@@ -200,6 +204,10 @@ async function runLocal(
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
   const resume = lastAssistant?.metadata?.claudeSessionId;
   const lastUser = messages[messages.length - 1];
+  // Name new sessions up front (a resumed one keeps its id), so the turn can
+  // be ended at the exhibit without waiting for the session's own finish.
+  const sessionId = resume ?? crypto.randomUUID();
+  const turn = new AbortController();
 
   const model = claudeCode(LOCAL_CURATOR_MODEL, {
     systemPrompt: CURATOR_PROMPT,
@@ -215,6 +223,7 @@ async function runLocal(
     env: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
     maxTurns: LOCAL_MAX_TURNS,
     resume,
+    sessionId: resume ? undefined : sessionId,
   });
 
   const result = streamText({
@@ -222,18 +231,66 @@ async function runLocal(
     // Resuming a session: it already holds the earlier turns (with the
     // images it looked at), so only the new message goes in.
     messages: toModelMessages(resume ? [lastUser] : messages, wall),
-    abortSignal: ctx.signal,
+    abortSignal: ctx.signal ? AbortSignal.any([ctx.signal, turn.signal]) : turn.signal,
+    // ending the turn at the exhibit aborts the session on purpose
+    onError: ({ error }) => {
+      if (!turn.signal.aborted) console.error(error);
+    },
   });
   writer.merge(
-    withoutToolChunks(
+    endAtExhibit(
       result.toUIMessageStream({ sendStart: false, sendFinish: false, sendReasoning: false }),
+      ctx,
+      () => turn.abort(),
     ),
   );
-  const finalStep = await result.finalStep;
-  const cc = (finalStep.providerMetadata?.["claude-code"] ?? {}) as { sessionId?: string };
-  return {
-    model: modelLabel(finalStep.response?.modelId ?? LOCAL_CURATOR_MODEL, "claude"),
-    engine: "claude" as const,
-    claudeSessionId: cc.sessionId,
-  };
+  const done = { model: modelLabel(LOCAL_CURATOR_MODEL, "claude"), engine: "claude" as const, claudeSessionId: sessionId };
+  try {
+    const finalStep = await result.finalStep;
+    const cc = (finalStep.providerMetadata?.["claude-code"] ?? {}) as { sessionId?: string };
+    return {
+      ...done,
+      model: modelLabel(finalStep.response?.modelId ?? LOCAL_CURATOR_MODEL, "claude"),
+      claudeSessionId: cc.sessionId ?? sessionId,
+    };
+  } catch (err) {
+    if (turn.signal.aborted && !ctx.signal?.aborted) return done;
+    throw err;
+  }
+}
+
+/**
+ * The local session can't be stopped at present_selection the way the hosted
+ * loop is (stopWhen), and left alone a model will often add a recap or
+ * "polish" the exhibit it just made. So once the exhibit's tool result has
+ * gone back to the session (it's in the transcript, so a later turn resumes
+ * cleanly), the turn ends here: open text is closed, the session is aborted,
+ * and nothing after it reaches the visitor. Tool chunks are dropped as in
+ * withoutToolChunks.
+ */
+function endAtExhibit<T extends { type: string; id?: string }>(
+  stream: ReadableStream<T>,
+  ctx: MuseumContext,
+  abort: () => void,
+): ReadableStream<T> {
+  const open = new Set<string>();
+  let ended = false;
+  return stream.pipeThrough(
+    new TransformStream<T, T>({
+      transform(chunk, controller) {
+        if (ended) return;
+        if (chunk.type === "tool-output-available" && ctx.exhibit) {
+          ended = true;
+          for (const id of open) controller.enqueue({ type: "text-end", id } as unknown as T);
+          abort();
+          controller.terminate();
+          return;
+        }
+        if (chunk.type.startsWith("tool-")) return;
+        if (chunk.type === "text-start" && chunk.id) open.add(chunk.id);
+        if (chunk.type === "text-end" && chunk.id) open.delete(chunk.id);
+        controller.enqueue(chunk);
+      },
+    }),
+  );
 }

@@ -5,6 +5,7 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ArrowDown, Check, RotateCcw, X } from "lucide-react";
 import type { Artwork } from "@/lib/types";
 import { EXAMPLES } from "@/lib/examples";
+import { warmRecording } from "@/lib/example-recordings";
 import Icon from "../Icon";
 import Composer from "./Composer";
 import { Spinner } from "./Glyph";
@@ -106,7 +107,7 @@ function ResizeHandle() {
 }
 
 function StatusLine() {
-  const { curator } = useThread();
+  const { curator, curatorText: text } = useThread();
   const working = isWorking(curator);
   if (curator.phase === "idle") return null;
   return (
@@ -126,8 +127,8 @@ function StatusLine() {
           <span className="block h-1.5 w-1.5 bg-current" />
         )}
       </span>
-      <span key={statusText(curator)} className="animate-fade min-w-0 flex-1 truncate">
-        {statusText(curator)}
+      <span key={text} className="animate-fade min-w-0 flex-1 truncate">
+        {text}
       </span>
       {working ? (
         <Elapsed since={curator.turnStartedAt} className="text-muted-foreground" />
@@ -153,6 +154,8 @@ function EmptyThread({ onPick }: { onPick: (slug: string) => void }) {
             key={ex.slug}
             type="button"
             onClick={() => onPick(ex.slug)}
+            onPointerEnter={() => warmRecording(ex.slug)}
+            onFocus={() => warmRecording(ex.slug)}
             className="invert-hover press-none animate-rise border border-ink px-3 py-2 text-left text-[13px] leading-snug"
             style={{ ["--stagger" as string]: `${60 + i * 40}ms` }}
           >

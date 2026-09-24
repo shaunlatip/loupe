@@ -260,6 +260,19 @@ button:active:not(:disabled):not(.press-none) {
   );
 }
 
+/* A wall label on an exhibit's tint (src/lib/tint.ts): the wash would all but
+ * vanish at the tint's lightness, so chips and wash controls on the band turn
+ * to translucent paper instead. Menus opening from the band sit on paper and
+ * keep the ordinary wash. */
+.label-tinted {
+  --color-wash: rgb(255 255 255 / 0.62);
+  --color-wash-strong: rgb(255 255 255 / 0.95);
+}
+.label-tinted [role="menu"] {
+  --color-wash: #f2f2f2;
+  --color-wash-strong: #e6e6e6;
+}
+
 /* loading-dev spinners, squared to the register: Flip and Gather ship with
  * slightly rounded blocks. Morph keeps its square-to-circle turn on purpose
  * (motion only; it reads as a loupe coming into focus). */
@@ -314,7 +327,56 @@ button:active:not(:disabled):not(.press-none) {
   animation: curio-modal-in 200ms var(--ease-out);
 }
 
+/* Detail view: the full-size image comes into focus over its blurred
+ * preview, like a lens pulling focus. Filter and transform only; the frame
+ * around it has already reserved the picture's box. */
+@keyframes curio-focus-pull {
+  from {
+    opacity: 0;
+    filter: blur(16px);
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+.animate-focus-pull {
+  animation: curio-focus-pull 320ms var(--ease-out) both;
+}
+
+/* Registration marks: four corner ticks just outside a frame whose full-size
+ * image is still on its way, breathing slowly (a printer's crop marks). */
+@keyframes curio-register {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.register-mark {
+  animation: curio-register 1.6s ease-in-out infinite;
+}
+
+/* Loading chrome that only a slow load should ever show: held back briefly,
+ * so an image that arrives in a blink never flashes marks and captions. */
+.after-a-beat {
+  animation: curio-fade 200ms var(--ease-out) 180ms both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-focus-pull {
+    animation: curio-fade 120ms linear both;
+  }
+  .register-mark {
+    animation: none;
+  }
+  .after-a-beat {
+    animation: none;
+  }
   .animate-pop,
   .animate-pop-right,
   .animate-fade,

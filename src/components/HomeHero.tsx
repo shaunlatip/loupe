@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES } from "@/lib/presets";
 import { EXAMPLES } from "@/lib/examples";
+import { warmRecording } from "@/lib/example-recordings";
 import type { SourceId } from "@/lib/types";
 import Composer from "./thread/Composer";
 import { useThread } from "./thread/ThreadProvider";
@@ -66,13 +67,15 @@ export default function HomeHero({
                   key={ex.slug}
                   type="button"
                   onClick={() => runExample(ex.slug)}
+                  onPointerEnter={() => warmRecording(ex.slug)}
+                  onFocus={() => warmRecording(ex.slug)}
                   className="group/ex animate-rise flex flex-col border border-ink bg-paper text-left transition-colors duration-150 hover:bg-ink hover:text-paper max-md:w-[240px] max-md:shrink-0 max-md:snap-start"
                   style={{ ["--stagger" as string]: `${80 + i * 40}ms` }}
                 >
                   {thumbs.length > 0 ? (
                     <span className="grid grid-cols-3 gap-px border-b border-ink bg-ink" aria-hidden>
                       {thumbs.slice(0, 3).map((src) => (
-                        <span key={src} className="block aspect-square overflow-hidden bg-wash">
+                        <span key={src} className="block aspect-[4/3] overflow-hidden bg-wash">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
                         </span>

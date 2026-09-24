@@ -154,7 +154,7 @@ function ResultGrid({
       {(heading || note || count > 0 || loading) && (
         <header
           className={`mb-8 flex flex-col gap-3 border-b border-ink pb-4 transition-[background-color] duration-200 ${
-            labelStyle ? "-mx-6 px-6 pt-5" : ""
+            labelStyle ? "label-tinted -mx-6 px-6 pt-5" : ""
           }`}
           style={labelStyle}
         >

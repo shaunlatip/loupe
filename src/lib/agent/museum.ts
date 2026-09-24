@@ -1,7 +1,7 @@
 import type { UIMessageStreamWriter } from "ai";
 import { z } from "zod";
 import { enabledSources, getArtworkById } from "@/lib/adapters";
-import { cachedSearch } from "@/lib/search-cache";
+import { cachedSearch, recentArtwork } from "@/lib/search-cache";
 import { serverCanFetch } from "@/lib/source-egress";
 import { smallThumb } from "@/lib/thumb";
 import type { Artwork, SourceId } from "@/lib/types";
@@ -44,6 +44,10 @@ export interface ViewedImage {
 export interface MuseumContext {
   /** full records from this turn's searches, so ids resolve without a refetch */
   cache: Map<string, Artwork>;
+  /** works from earlier exhibits in the thread (validated records the browser
+   *  sent back), so a follow-up can keep them even when their museum won't
+   *  answer this server (AIC from datacenters, the Met under load) */
+  known: Map<string, Artwork>;
   /** ids the model has actually seen a thumbnail of */
   viewed: Set<string>;
   writer: UIMessageStreamWriter<CurioUIMessage>;
@@ -56,6 +60,8 @@ export interface MuseumContext {
   exhibit?: ExhibitData;
   /** its data-part id: a second call rewrites the same part */
   exhibitId?: string;
+  /** present_selection already sent back ids it couldn't load (once a turn) */
+  missingReported?: boolean;
   nextId: (prefix: string) => string;
 }
 
@@ -66,6 +72,7 @@ export function createMuseumContext(
   let n = 0;
   return {
     cache: new Map(),
+    known: new Map(),
     viewed: new Set(),
     writer,
     signal: opts.signal,
@@ -91,9 +98,16 @@ export function formatYears(from?: number, to?: number): string | undefined {
   return undefined;
 }
 
+/** An id to a full record: this turn's searches, then any recent search on
+ *  this server, then the thread's earlier exhibits, then the museum itself. */
 async function resolve(ctx: MuseumContext, id: string): Promise<Artwork | null> {
   const cached = ctx.cache.get(id);
   if (cached) return cached;
+  const local = recentArtwork(id) ?? ctx.known.get(id);
+  if (local) {
+    ctx.cache.set(id, local);
+    return local;
+  }
   const fetched = await getArtworkById(id).catch(() => null);
   if (fetched) ctx.cache.set(fetched.id, fetched);
   return fetched;
@@ -308,11 +322,20 @@ export async function presentExhibit(
 ): Promise<string> {
   const id = ctx.nextId("step");
   const startedAt = Date.now();
-  writeStep(ctx, id, { kind: "exhibit", phase: "running", startedAt });
   const ids = Array.isArray(args.artworkIds) ? args.artworkIds : [];
-  const resolved = (await Promise.all(ids.map((wid) => resolve(ctx, wid)))).filter(
-    (a): a is Artwork => !!a,
-  );
+  const found = await Promise.all(ids.map((wid) => resolve(ctx, wid)));
+  // A work that can't be loaded would silently drop out while the note still
+  // talks about it. The first time, hand it back so the model re-curates
+  // with what it has; after that, curate whatever resolves.
+  const missing = ids.filter((_, i) => !found[i]);
+  if (missing.length > 0 && !ctx.exhibit && !ctx.missingReported) {
+    ctx.missingReported = true;
+    return `Couldn't load ${missing.join(", ")} (the museum didn't answer). Call present_selection again without ${
+      missing.length === 1 ? "it" : "them"
+    }, or with other works you have looked at, and write the note about the works that are actually in the exhibit.`;
+  }
+  writeStep(ctx, id, { kind: "exhibit", phase: "running", startedAt });
+  const resolved = found.filter((a): a is Artwork => !!a);
   const exhibit: ExhibitData = {
     title: args.title?.trim() || "An exhibit",
     note: args.note?.trim() ?? "",

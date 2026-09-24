@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
+import { artworkTint } from "@/lib/tint";
 import SourceBadge from "./SourceBadge";
 
 /** Cards past this reading-order index enter without delay — the stagger is
@@ -34,10 +35,12 @@ export default function ArtworkCard({
   // With space reserved we can hide the image until it decodes and fade it
   // in — pure opacity, never layout. Unknown-ratio cards skip the hide so
   // they don't collapse-then-pop. While hidden, the reserved box carries the
-  // wash so the wall reads as frames-awaiting-pictures, not holes.
+  // work's own tint (or the wash, when it reports no colour) so the wall
+  // reads as frames-awaiting-pictures, each already hinting at its picture.
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const fadeReady = ratio !== undefined;
+  const tint = fadeReady && !loaded ? artworkTint(artwork) : undefined;
 
   // Warm the hi-res on hover intent so DetailView opens sharp (or nearly)
   // instead of dwelling on the blur-up: by click the full image is usually
@@ -88,7 +91,7 @@ export default function ArtworkCard({
           className={`relative block w-full border border-ink ${
             fadeReady && !loaded ? "bg-wash" : ""
           }`}
-          style={ratio ? { aspectRatio: String(ratio) } : undefined}
+          style={ratio ? { aspectRatio: String(ratio), backgroundColor: tint } : undefined}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
