@@ -188,6 +188,7 @@ export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) 
     showExhibit,
     wallExhibitId,
     runExample,
+    runFresh,
   } = useThread();
   const busy = chatStatus === "submitted" || chatStatus === "streaming";
   const panelRef = useRef<HTMLElement>(null);
@@ -296,7 +297,7 @@ export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) 
                             const prompt = messages[i - 1]?.parts
                               .map((p) => (p.type === "text" ? p.text : ""))
                               .join(" ");
-                            if (prompt) submit(prompt, "curate");
+                            if (prompt) runFresh(prompt);
                           }
                         : undefined
                     }

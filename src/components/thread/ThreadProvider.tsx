@@ -75,6 +75,7 @@ interface ThreadContextValue {
   stop: () => void;
   reset: () => void;
   retry: () => void;
+  runFresh: (prompt: string) => void;
   showExhibit: (messageId: string) => void;
   runExample: (slug: string) => void;
   /** the done state has been looked at (clears the header's "unseen" pill) */
@@ -348,6 +349,25 @@ export default function ThreadProvider({
     void regenerate();
   }, [regenerate]);
 
+  /** A recorded example's brief, run live from a clean thread and blind to
+   *  the wall (which is showing that same recording), so it's a true rerun
+   *  rather than "more like what's up". */
+  const runFresh = useCallback(
+    (prompt: string) => {
+      if (busy) return;
+      cancelReplay();
+      setMessages([]);
+      setAttachments([]);
+      setStopped(false);
+      setWallExhibitId(undefined);
+      setOpenState(true);
+      setPendingSince(Date.now());
+      handlersRef.current.onTurnStart();
+      void sendMessage({ text: prompt, metadata: { route: "curate", fresh: true } });
+    },
+    [busy, cancelReplay, setMessages, sendMessage],
+  );
+
   const showExhibit = useCallback(
     (messageId: string) => {
       const m = messages.find((x) => x.id === messageId);
@@ -511,6 +531,7 @@ export default function ThreadProvider({
       stop,
       reset,
       retry,
+      runFresh,
       showExhibit,
       runExample,
       unseen,
@@ -537,6 +558,7 @@ export default function ThreadProvider({
       stop,
       reset,
       retry,
+      runFresh,
       showExhibit,
       runExample,
       unseen,

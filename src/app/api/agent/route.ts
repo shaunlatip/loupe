@@ -19,7 +19,12 @@ import {
   modelLabel,
 } from "@/lib/ai/models";
 import { attachedArtworkIds, exhibitArtworks, toModelMessages } from "@/lib/agent/history";
-import { createMuseumContext, fallbackExhibit, type MuseumContext } from "@/lib/agent/museum";
+import {
+  closeOpenSteps,
+  createMuseumContext,
+  fallbackExhibit,
+  type MuseumContext,
+} from "@/lib/agent/museum";
 import { CURATOR_PROMPT, HOSTED_NOTE } from "@/lib/agent/prompt";
 import { MCP_TOOL_NAMES, museumMcpServer, museumTools } from "@/lib/agent/tools";
 import { clientKey, rateLimited } from "@/lib/rate-limit";
@@ -30,6 +35,9 @@ export const dynamic = "force-dynamic";
 // Vercel Hobby caps functions at 60s (and fails the build above the plan
 // limit). The hosted loop curates by HOSTED_BUDGET_MS so it always lands.
 export const maxDuration = 60;
+
+const NO_EXHIBIT =
+  "Curio couldn't put an exhibit together this time: the searches didn't come back. A museum may be slow to answer; try again in a moment.";
 
 const MAX_STEPS = 8;
 const HOSTED_BUDGET_MS = 38_000;
@@ -100,14 +108,26 @@ export async function POST(req: NextRequest) {
       // them without asking each museum again (see MuseumContext.known).
       for (const a of exhibitArtworks(messages)) ctx.known.set(a.id, a);
 
+      // a fresh run of a brief ("Run it fresh") doesn't build on the wall
+      const wall = last.metadata?.fresh ? undefined : body.wall;
       const meta =
         engine === "claude"
-          ? await runLocal(messages, body.wall, ctx, writer)
-          : await runHosted(messages, body.wall, ctx, writer, engine, startedAt, req.signal);
+          ? await runLocal(messages, wall, ctx, writer)
+          : await runHosted(messages, wall, ctx, writer, engine, startedAt, req.signal);
 
-      if (!ctx.exhibit && !req.signal.aborted) {
+      if (req.signal.aborted) return;
+      closeOpenSteps(ctx);
+      if (!ctx.exhibit) {
         const fallback = fallbackExhibit(ctx);
-        if (fallback) writer.write({ type: "data-exhibit", id: ctx.nextId("exhibit"), data: fallback });
+        if (fallback) {
+          writer.write({ type: "data-exhibit", id: ctx.nextId("exhibit"), data: fallback });
+        } else {
+          // Nothing to show at all (the searches never came back, or the
+          // session ended early): say so, with Try again, rather than leave a
+          // turn that just stops.
+          writer.write({ type: "error", errorText: NO_EXHIBIT });
+          return;
+        }
       }
       writer.write({ type: "finish", messageMetadata: { ...meta, finishedAt: Date.now() } });
     },

@@ -79,6 +79,8 @@ function entryFrom(
 
 export default function Home() {
   const [results, setResults] = useState<ResultState>(EMPTY);
+  const resultsRef = useRef(results);
+  resultsRef.current = results;
   const [loading, setLoading] = useState(false);
   const [curating, setCurating] = useState(false);
   const [reading, setReading] = useState(false);
@@ -352,7 +354,13 @@ export default function Home() {
     setCurating(true);
     setSearched(true);
   }, []);
-  const onTurnEnd = useCallback(() => setCurating(false), []);
+  const onTurnEnd = useCallback(() => {
+    setCurating(false);
+    // A turn begun from the empty homepage that ended without an exhibit
+    // (stopped, or failed) leaves nothing to show: go back to the homepage
+    // rather than claim "nothing came back"; the thread says what happened.
+    if (resultsRef.current === EMPTY) setSearched(false);
+  }, []);
 
   // — collections
 

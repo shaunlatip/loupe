@@ -62,6 +62,8 @@ export interface MuseumContext {
   exhibitId?: string;
   /** present_selection already sent back ids it couldn't load (once a turn) */
   missingReported?: boolean;
+  /** the last data written for each step, to close any left running */
+  steps: Map<string, StepData>;
   nextId: (prefix: string) => string;
 }
 
@@ -73,6 +75,7 @@ export function createMuseumContext(
   return {
     cache: new Map(),
     known: new Map(),
+    steps: new Map(),
     viewed: new Set(),
     writer,
     signal: opts.signal,
@@ -83,7 +86,26 @@ export function createMuseumContext(
 }
 
 function writeStep(ctx: MuseumContext, id: string, data: StepData) {
+  ctx.steps.set(id, data);
   ctx.writer.write({ type: "data-step", id, data });
+}
+
+/**
+ * Close any step the turn left running (a tool the session gave up on, a
+ * search cut off mid-flight), so the thread doesn't show it spinning forever
+ * after the turn is over.
+ */
+export function closeOpenSteps(ctx: MuseumContext) {
+  for (const [id, data] of ctx.steps) {
+    if (data.phase !== "running") continue;
+    writeStep(ctx, id, {
+      ...data,
+      phase: "error",
+      endedAt: Date.now(),
+      error: "didn't finish",
+      items: data.items?.map((i) => (i.state === "loading" ? { ...i, state: "failed" as const } : i)),
+    });
+  }
 }
 
 function itemOf(a: Artwork, state: StepItem["state"]): StepItem {

@@ -49,7 +49,7 @@ Every composer (the hero, the top bar, the thread) submits through `ThreadProvid
 
 ### The fanout seam
 
-Every search, whoever asks, is **one `SearchQuery`** (`src/lib/types.ts`) into **`searchSources(sources, query)`** (`src/lib/adapters/index.ts`), a `Promise.allSettled` fanout that interleaves and dedupes, returning `{ artworks, errors }`. **`cachedSearch`** (`src/lib/search-cache.ts`) sits in front for both `/api/search` and Curio's `search_artworks`: in-memory LRU, 6h TTL (2 min for partial results), in-flight dedupe, and a recent-works index by id (`recentArtwork`) so later turns resolve works without asking the museum again.
+Every search, whoever asks, is **one `SearchQuery`** (`src/lib/types.ts`) into **`searchSources(sources, query)`** (`src/lib/adapters/index.ts`), a `Promise.allSettled` fanout that interleaves and dedupes, returning `{ artworks, errors }`. Each museum gets **10s** to answer; one that misses it is reported as not answering and skipped for 2 minutes (SMK has gone silent for minutes at a time, which used to stall every search and every Curio turn). Lookups by id give up after 8s. **`cachedSearch`** (`src/lib/search-cache.ts`) sits in front for both `/api/search` and Curio's `search_artworks`: in-memory LRU, 6h TTL (2 min for partial results), in-flight dedupe, and a recent-works index by id (`recentArtwork`) so later turns resolve works without asking the museum again.
 
 ### Adapters (`src/lib/adapters/`)
 

@@ -119,7 +119,8 @@ export function StepRow({
   scanning?: boolean;
 }) {
   const running = step.phase === "running";
-  const label = stepLabel(step, running);
+  // a step that errored never got to "Searched …": keep the in-progress form
+  const label = stepLabel(step, running || step.phase === "error");
   if (step.kind === "exhibit" && step.phase === "done") return null; // the exhibit card stands in
 
   return (
@@ -155,7 +156,7 @@ export function StepRow({
           )}
           {step.phase === "error" && step.error && (
             <Chip tone="error" title={step.error}>
-              failed
+              {step.error === "didn't finish" ? "didn’t finish" : "failed"}
             </Chip>
           )}
         </div>

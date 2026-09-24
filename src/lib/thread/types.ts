@@ -80,6 +80,8 @@ export interface CurioMetadata {
   attachments?: Attachment[];
   /** user message: how the one input routed it */
   route?: Route;
+  /** user message: a fresh run of a brief, blind to what's on the wall */
+  fresh?: boolean;
   /** assistant message: the model that answered, human-readable */
   model?: string;
   engine?: "claude" | "openrouter" | "gateway";
