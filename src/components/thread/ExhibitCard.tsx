@@ -3,6 +3,7 @@
 import type { Artwork } from "@/lib/types";
 import type { ExhibitData } from "@/lib/thread/types";
 import { smallThumb } from "@/lib/thumb";
+import WallButton from "./WallButton";
 
 /**
  * An exhibit in the thread: its title, the works as a strip of frames (each
@@ -34,22 +35,12 @@ export default function ExhibitCard({
 
   return (
     <section className="animate-rise flex flex-col gap-3 border-t border-b border-ink py-3" aria-label={`Exhibit: ${exhibit.title}`}>
-      <header className="flex items-baseline justify-between gap-3">
+      <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="caption">{exhibit.fallback ? "A first pass" : "Exhibit"}</p>
           <h3 className="balance text-[15px] leading-snug font-semibold">{exhibit.title}</h3>
         </div>
-        {onWall ? (
-          <span className="caption shrink-0 text-ink">On the wall</span>
-        ) : (
-          <button
-            type="button"
-            onClick={onShow}
-            className="caption press-none shrink-0 underline underline-offset-2 hover:text-ink"
-          >
-            Show this exhibit
-          </button>
-        )}
+        <WallButton onWall={onWall} onShow={onShow} />
       </header>
 
       <div className="flex gap-1">

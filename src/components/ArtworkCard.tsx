@@ -13,7 +13,61 @@ const STAGGER_STEP_MS = 28;
 
 /** Hover this long before a comment opens, so sweeping the pointer across
  *  the wall doesn't flash every comment on the way. */
-const COMMENT_INTENT_MS = 90;
+const COMMENT_INTENT_MS = 120;
+/** The comment's width beside the picture, and its distance from the frame. */
+const COMMENT_W = 280;
+const COMMENT_GAP = 12;
+
+type CommentSide = "right" | "left" | "top" | "bottom";
+
+/**
+ * Where a comment goes: beside the picture where the wall has room for it
+ * (right first, the way a label reads), else above it, or below it when the
+ * picture sits too near the top of the window for anything to fit above.
+ * `offset` nudges a side comment down so it starts on screen when the
+ * picture's top has scrolled away.
+ */
+function placeComment(frame: DOMRect, bounds: DOMRect): { side: CommentSide; offset: number } {
+  const offset = Math.max(0, Math.min(12 - frame.top, frame.height - 48));
+  if (frame.right + COMMENT_GAP + COMMENT_W <= bounds.right) return { side: "right", offset };
+  if (frame.left - COMMENT_GAP - COMMENT_W >= bounds.left) return { side: "left", offset };
+  return { side: frame.top > 240 ? "top" : "bottom", offset: 0 };
+}
+
+/**
+ * The comment, written out as it opens: quick (about a second at most, so a
+ * long one never makes you wait), with the whole text laid out from the
+ * first frame so the box never grows while it types. Reduced motion shows it
+ * all at once.
+ */
+function TypedComment({ text }: { text: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setN(text.length);
+      return;
+    }
+    const perChar = Math.min(14, 1000 / Math.max(1, text.length));
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const k = Math.min(text.length, Math.ceil((now - t0) / perChar));
+      setN(k);
+      if (k < text.length) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [text]);
+  const typing = n < text.length;
+  return (
+    <>
+      {text.slice(0, n)}
+      {/* the caret takes no width, so nothing rewraps under it */}
+      {typing && <span className="inline-block h-[1.05em] w-[2px] -mr-[2px] bg-accent align-[-0.18em]" />}
+      <span className="invisible">{text.slice(n)}</span>
+    </>
+  );
+}
 
 export default function ArtworkCard({
   artwork,
@@ -31,19 +85,27 @@ export default function ArtworkCard({
   const calm = useCalmScore(artwork);
   const commentId = useId();
 
-  // Curio's comment sits on the picture as a blue tag showing its first few
-  // words; pointing anywhere at the card (or focusing it) opens it to the
-  // full text in place, over the picture, so nothing on the wall moves.
-  const [commentOpen, setCommentOpen] = useState(false);
+  // Curio's comment: at rest only an accent line along the frame's top edge
+  // says there is one. Pointing at the card (or focusing it) opens it beside
+  // the picture, outside the frame, and it writes itself out. It floats over
+  // the wall, so nothing moves.
+  const frameRef = useRef<HTMLSpanElement>(null);
+  const [commentAt, setCommentAt] = useState<{ side: CommentSide; offset: number } | null>(null);
   const commentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openComment = () => {
+    const frame = frameRef.current;
+    const bounds = frame?.closest("section")?.getBoundingClientRect();
+    if (!comment || !frame || !bounds) return;
+    setCommentAt(placeComment(frame.getBoundingClientRect(), bounds));
+  };
   const openCommentSoon = () => {
     if (!comment || commentTimer.current) return;
-    commentTimer.current = setTimeout(() => setCommentOpen(true), COMMENT_INTENT_MS);
+    commentTimer.current = setTimeout(openComment, COMMENT_INTENT_MS);
   };
   const closeComment = () => {
     if (commentTimer.current) clearTimeout(commentTimer.current);
     commentTimer.current = null;
-    setCommentOpen(false);
+    setCommentAt(null);
   };
   useEffect(
     () => () => {
@@ -104,7 +166,9 @@ export default function ArtworkCard({
 
   return (
     <figure
-      className="group animate-fade mb-8"
+      // raised while its comment is open, so the comment sits over the
+      // neighbouring cards it reaches across
+      className={`group animate-fade relative mb-8 ${commentAt ? "z-30" : ""}`}
       style={{ ["--stagger" as string]: `${stagger}ms` }}
       onPointerEnter={openCommentSoon}
       onPointerLeave={closeComment}
@@ -117,13 +181,14 @@ export default function ArtworkCard({
         onPointerDown={warmHires}
         onFocus={() => {
           warmHires();
-          if (comment) setCommentOpen(true);
+          openComment();
         }}
         onBlur={closeComment}
         aria-label={`${artwork.title}, ${artwork.artist}`}
         aria-describedby={comment ? commentId : undefined}
       >
         <span
+          ref={frameRef}
           className={`relative block w-full border border-ink ${
             fadeReady && !loaded ? "bg-wash" : ""
           }`}
@@ -161,22 +226,42 @@ export default function ArtworkCard({
             aria-hidden
             className="pointer-events-none absolute inset-0 border-[3px] border-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
           />
-          {/* Curio's comment: the first few words on a blue tag at the
-              picture's foot; open, the whole of it, inside the mat. */}
+          {/* Curio has a word on this one: an accent line along the top
+              edge, over the mat, the same edge its comment opens with. */}
           {comment && (
-            <span
-              id={commentId}
-              className={`pointer-events-none absolute z-10 bg-accent text-left font-semibold text-paper ${
-                commentOpen
-                  ? "right-[3px] bottom-[3px] left-[3px] px-2.5 py-2 text-[13px] leading-[1.4]"
-                  : "bottom-0 left-0 max-w-[80%] truncate px-2 py-1 text-[12px] leading-[1.4]"
-              }`}
-            >
-              {comment}
-            </span>
+            <>
+              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-accent" />
+              <span id={commentId} className="sr-only">
+                Curio: {comment}
+              </span>
+            </>
           )}
         </span>
       </button>
+      {comment && commentAt && (
+        <aside
+          aria-hidden
+          className={`animate-fade pointer-events-none absolute z-10 border border-ink border-t-[3px] border-t-accent bg-paper px-3.5 pt-2.5 pb-3 text-left ${
+            commentAt.side === "right"
+              ? "left-[calc(100%+12px)]"
+              : commentAt.side === "left"
+                ? "right-[calc(100%+12px)]"
+                : commentAt.side === "top"
+                  ? "inset-x-0 bottom-[calc(100%+12px)]"
+                  : "inset-x-0 top-[calc(100%+4px)]"
+          }`}
+          style={{
+            ["--stagger" as string]: "0ms",
+            width: commentAt.side === "left" || commentAt.side === "right" ? COMMENT_W : undefined,
+            top: commentAt.side === "left" || commentAt.side === "right" ? commentAt.offset : undefined,
+          }}
+        >
+          <p className="caption text-accent!">Curio</p>
+          <p className="pretty mt-1 text-[14px] leading-[1.5] text-ink">
+            <TypedComment text={comment} />
+          </p>
+        </aside>
+      )}
       <figcaption className="mt-2 flex flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <span className="pretty text-[14px] leading-tight font-medium underline-offset-2 group-hover:underline">

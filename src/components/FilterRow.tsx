@@ -36,7 +36,7 @@ const GROUP_ORDER: Category["group"][] = ["Movements", "Cultures", "Subjects", "
 /**
  * The bar under the input: what the next search asks for. Everything here
  * starts a new query (a taxonomy pick) or shapes the next one (Sources).
- * What acts on the set already on the wall (Color, In these results, Sort)
+ * What acts on the set already on the wall (In these results, Color, Sort)
  * sits at the right of the wall label instead (WallTools below).
  *
  * It sizes itself against its own container, not the window (`@container`),
@@ -178,9 +178,9 @@ export default function FilterRow({
 
 /**
  * The right end of the wall label: what acts on the works already shown,
- * without a new search. Color ranks them by closeness to a picked colour, In
- * these results narrows them to movements they carry (a union filter), Sort
- * orders them. Menus open leftward from the label's right edge.
+ * without a new search. In these results narrows them to movements they
+ * carry (a union filter), Color ranks them by closeness to a picked colour,
+ * Sort orders them. Menus open leftward from the label's right edge.
  */
 export function WallTools({
   targetColor,
@@ -205,26 +205,6 @@ export function WallTools({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 max-sm:justify-start">
-      <Dropdown
-        align="right"
-        active={!!targetColor}
-        panelClassName="w-64 p-3"
-        label={
-          <span className="flex items-center gap-1.5">
-            {targetColor && (
-              <span
-                aria-hidden
-                className="h-3 w-3 border border-current"
-                style={{ backgroundColor: hslCss(targetColor) }}
-              />
-            )}
-            Color
-          </span>
-        }
-      >
-        {() => <ColorPicker value={targetColor} onChange={onPickColor} onClear={onClearColor} />}
-      </Dropdown>
-
       {movements.length > 0 && (
         <Dropdown
           align="right"
@@ -248,6 +228,26 @@ export function WallTools({
           }
         </Dropdown>
       )}
+
+      <Dropdown
+        align="right"
+        active={!!targetColor}
+        panelClassName="w-64 p-3"
+        label={
+          <span className="flex items-center gap-1.5">
+            {targetColor && (
+              <span
+                aria-hidden
+                className="h-3 w-3 border border-current"
+                style={{ backgroundColor: hslCss(targetColor) }}
+              />
+            )}
+            Color
+          </span>
+        }
+      >
+        {() => <ColorPicker value={targetColor} onChange={onPickColor} onClear={onClearColor} />}
+      </Dropdown>
 
       <SortMenu sort={sort} onSort={onSort} />
     </div>
