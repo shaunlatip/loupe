@@ -25,13 +25,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "curio",
+  // matches the tab title the thread keeps (ThreadProvider), so it doesn't
+  // change case on hydration
+  title: "Curio",
   description:
-    "Search, curate and download public-domain paintings from five museums' open collections, sized for hero backdrops.",
+    "Public-domain paintings from five museums' open collections. Ask for an artist, a mood or something stranger, and Curio curates a small exhibit. Every work downloads at full resolution.",
   openGraph: {
-    title: "curio",
+    title: "Curio",
     description:
-      "Public-domain paintings from five museums' open collections, sized for hero backdrops.",
+      "Public-domain paintings from five museums' open collections, curated by an agent.",
     type: "website",
   },
 };

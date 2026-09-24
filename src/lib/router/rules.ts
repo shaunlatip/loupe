@@ -78,7 +78,7 @@ const REFINE =
 
 /** Descriptive words that make a short phrase a description, not a lookup. */
 const DESCRIPTIVE =
-  /\b(quiet|calm|moody|dark|bright|warm|cold|cool|soft|dreamy|lonely|melancholy|melancholic|joyful|happy|sad|strange|weird|absurd|eerie|gloomy|serene|peaceful|dramatic|stormy|misty|foggy|hazy|golden|pale|muted|vivid|colou?rful|minimal|busy|empty|wild|gentle|tender|cosy|cozy|sunlit|moonlit|rainy|snowy|windy|early|late|ancient|tiny|huge|vast|small|big|feeling|mood|light|evening|morning|dawn|dusk|night)\b/;
+  /\b(quiet|calm|moody|dark|bright|warm|cold|cool|soft|dreamy|lonely|melancholy|melancholic|joyful|happy|sad|strange|weird|absurd|eerie|gloomy|serene|peaceful|dramatic|stormy|misty|foggy|hazy|golden|pale|muted|vivid|colou?rful|minimal|busy|empty|wild|gentle|tender|cosy|cozy|sunlit|moonlit|rainy|snowy|windy|early|late|ancient|tiny|huge|vast|small|big|feeling|mood|light|evening|morning|dawn|dusk|night|twilight|mist|fog|haze|rain|snow|storm|(?:warm|cool|cold|dark|light|bright|calm|quiet|soft|pale)(?:er|est))\b/;
 
 export function classifyRules(input: string, ctx: RouteContext): RouteDecision {
   const q = normalize(input);
@@ -103,10 +103,11 @@ export function classifyRules(input: string, ctx: RouteContext): RouteDecision {
   const isName = names.has(q) || last.has(q) || LABELS.has(q);
   if (isName) return decide("lookup", 0.9, "a known name or label");
 
+  // A short phrase is a lookup unless it carries a mood or a condition: then
+  // it's read as a description, even with an artist in it ("monet mist" wants
+  // Monet's misty works, not every Monet with "mist" in the title).
   const descriptive = DESCRIPTIVE.test(q) || matchVocab(input).length > 0;
   if (words <= 3 && !descriptive) return decide("lookup", 0.7, "a short keyword");
-  const mentionsArtist = q.split(" ").some((w) => last.has(w));
-  if (words <= 3 && mentionsArtist) return decide("lookup", 0.6, "an artist and a keyword");
   return decide("describe", descriptive ? 0.7 : 0.55, "a description");
 }
 

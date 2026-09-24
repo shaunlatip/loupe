@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "eval:router": "node scripts/eval-router.mjs",
+    "record:examples": "node scripts/record-examples.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.116",
