@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
 
 /**
- * Curio's word on one work, as a card: ink on paper, a 1px ink border with
- * an accent top edge, the "Curio" label in the accent. The same card opens
- * beside a picture on the wall and sits in the detail view's side column.
+ * Curio's word on one work, as a card in the accent: white on the deep blue.
+ * Tuned to read rather than shout: regular weight at 14px with open leading
+ * and room around it (the earlier tag was small semibold and felt harsh),
+ * greyscale antialiasing so light-on-colour text doesn't thicken, and the
+ * "Curio" label quieter than the text. The same card opens beside a picture
+ * on the wall and sits in the detail view's side column.
  */
 export default function CommentCard({
   children,
@@ -23,11 +26,11 @@ export default function CommentCard({
   return (
     <div
       aria-hidden={hidden || undefined}
-      className={`border border-t-[3px] border-ink border-t-accent bg-paper px-3.5 pt-2.5 pb-3 text-left ${className}`}
+      className={`bg-accent px-4 pt-3 pb-3.5 text-left text-paper antialiased ${className}`}
       style={style}
     >
-      <p className="caption text-accent!">{label}</p>
-      <p className="pretty mt-1 text-[14px] leading-[1.5] text-ink">{children}</p>
+      <p className="text-[11px] leading-[1.5] tracking-[0.04em] text-paper/70">{label}</p>
+      <p className="pretty mt-1 text-[14px] leading-[1.55] tracking-[0.005em]">{children}</p>
     </div>
   );
 }

@@ -3,10 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
-import { MessageSquareText } from "lucide-react";
 import { artworkTint } from "@/lib/tint";
 import CommentCard from "./CommentCard";
-import Icon from "./Icon";
 import SourceBadge from "./SourceBadge";
 
 /** Cards past this reading-order index enter without delay — the stagger is
@@ -14,9 +12,10 @@ import SourceBadge from "./SourceBadge";
 const STAGGER_LIMIT = 16;
 const STAGGER_STEP_MS = 28;
 
-/** Hover this long before a comment opens, so sweeping the pointer across
- *  the wall doesn't flash every comment on the way. */
-const COMMENT_INTENT_MS = 120;
+/** Rest on a card this long before its comment opens: long enough that
+ *  passing over the wall (or glancing at a picture) doesn't set one off,
+ *  short enough to feel like it answered. */
+const COMMENT_INTENT_MS = 350;
 /** The comment's width beside the picture, and its distance from the frame. */
 const COMMENT_W = 280;
 const COMMENT_GAP = 12;
@@ -39,38 +38,6 @@ function placeComment(frame: DOMRect, bounds: DOMRect): { side: CommentSide; off
   if (frame.right + COMMENT_GAP + COMMENT_W <= bounds.right) return { side: "right", offset };
   if (frame.left - COMMENT_GAP - COMMENT_W >= bounds.left) return { side: "left", offset };
   return { side: frame.top > 240 ? "top" : "bottom", offset: 0 };
-}
-
-/**
- * The comment, written out as it opens: fast (a quarter of a second at most,
- * a reveal rather than a wait), with the whole text laid out from the first
- * frame so the box never grows while it types. Reduced motion shows it all
- * at once.
- */
-function TypedComment({ text }: { text: string }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setN(text.length);
-      return;
-    }
-    const perChar = Math.min(3, 250 / Math.max(1, text.length));
-    const t0 = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const k = Math.min(text.length, Math.ceil((now - t0) / perChar));
-      setN(k);
-      if (k < text.length) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [text]);
-  return (
-    <>
-      {text.slice(0, n)}
-      <span className="invisible">{text.slice(n)}</span>
-    </>
-  );
 }
 
 export default function ArtworkCard({
@@ -241,18 +208,15 @@ export default function ArtworkCard({
             aria-hidden
             className="pointer-events-none absolute inset-0 border-[3px] border-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
           />
-          {/* Curio has a word on this one: a small accent badge in the top
+          {/* Curio has a word on this one: a small accent square in the top
               right corner. The paper rim keeps it legible on a dark picture,
               the accent fill on a light one. */}
           {comment && (
             <>
               <span
                 aria-hidden
-                title="Curio has a note on this"
-                className="pointer-events-none absolute top-2 right-2 flex h-6 w-6 items-center justify-center border-2 border-paper bg-accent text-paper"
-              >
-                <Icon icon={MessageSquareText} size={13} />
-              </span>
+                className="pointer-events-none absolute top-2 right-2 block h-3.5 w-3.5 border-2 border-paper bg-accent"
+              />
               <span id={commentId} className="sr-only">
                 Curio: {comment}
               </span>
@@ -278,7 +242,7 @@ export default function ArtworkCard({
             top: commentAt.side === "left" || commentAt.side === "right" ? commentAt.offset : undefined,
           }}
         >
-          <TypedComment text={comment} />
+          {comment}
         </CommentCard>
       )}
       <figcaption className="mt-2 flex flex-col gap-1">
