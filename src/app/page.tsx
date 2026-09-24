@@ -1067,22 +1067,24 @@ function EmptyWall({
           behind your UI. Every result is CC0 or public domain and downloads at full
           resolution with attribution.
         </p>
-        <div className="flex flex-wrap gap-2">
-          {STARTERS.map((s, i) => (
-            <button
-              key={s.label}
-              type="button"
-              onClick={() => (s.run === "search" ? onSearch(s.value) : onCategory(s.value))}
-              className="invert-hover animate-rise border border-ink px-3 py-1.5 text-[13px]"
-              style={{ ["--stagger" as string]: `${80 + i * 35}ms` }}
-            >
-              {s.label}
-            </button>
-          ))}
+        <div className="flex flex-col items-start gap-4">
+          <div className="flex flex-wrap gap-2">
+            {STARTERS.map((s, i) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => (s.run === "search" ? onSearch(s.value) : onCategory(s.value))}
+                className="invert-hover animate-rise border border-ink px-3 py-1.5 text-[13px]"
+                style={{ ["--stagger" as string]: `${80 + i * 35}ms` }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={onCurator}
-            className="animate-rise border border-accent px-3 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent hover:text-paper"
+            className="animate-rise border border-accent bg-accent px-4 py-2 text-[13px] font-semibold text-paper hover:border-ink hover:bg-ink"
             style={{ ["--stagger" as string]: `${80 + STARTERS.length * 35}ms` }}
           >
             Ask the curator
