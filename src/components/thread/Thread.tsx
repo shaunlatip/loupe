@@ -193,11 +193,12 @@ export default function Thread({ onOpenArtwork }: { onOpenArtwork: (a: Artwork) 
   const busy = chatStatus === "submitted" || chatStatus === "streaming";
   const panelRef = useRef<HTMLElement>(null);
 
-  // Escape closes the thread unless a dialog (the detail view) owns it.
+  // Escape closes the thread unless a dialog (the detail view) or an open
+  // menu owns it: then that Escape is for closing the menu.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !document.querySelector('[role="dialog"]')) setOpen(false);
+      if (e.key === "Escape" && !document.querySelector('[role="dialog"], [role="menu"]')) setOpen(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

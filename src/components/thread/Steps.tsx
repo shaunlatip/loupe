@@ -195,7 +195,10 @@ export function WorkGroup({
         type="button"
         onClick={() => setOpen(!expanded)}
         aria-expanded={expanded}
-        className="press-none group/wg -ml-1 flex items-start gap-1.5 self-start px-1 text-left text-[12px] leading-[18px] text-ink/70 hover:text-ink"
+        // -ml-2: the chevron's stroke starts ~4px inside its 12px box, so the
+        // button steps out that far to put the visible chevron on the
+        // thread's text edge
+        className="press-none group/wg -ml-2 flex items-start gap-1.5 self-start px-1 text-left text-[12px] leading-[18px] text-ink/70 hover:text-ink"
       >
         <span aria-hidden className="flex h-[18px] w-3 shrink-0 items-center justify-center">
           <Icon

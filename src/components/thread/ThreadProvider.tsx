@@ -70,8 +70,10 @@ interface ThreadContextValue {
   attachments: Attachment[];
   attach: (a: Attachment) => void;
   detach: (a: Attachment) => void;
-  submit: (text: string, override?: RouteOverride) => void;
-  classify: (text: string) => RouteDecision;
+  /** withAttachments false: a composer that doesn't show the attachments
+   *  (the top bar, with the thread open) sends without them */
+  submit: (text: string, override?: RouteOverride, withAttachments?: boolean) => void;
+  classify: (text: string, withAttachments?: boolean) => RouteDecision;
   stop: () => void;
   reset: () => void;
   retry: () => void;
@@ -81,7 +83,7 @@ interface ThreadContextValue {
   /** the done state has been looked at (clears the header's "unseen" pill) */
   unseen: boolean;
   focusComposer: () => void;
-  registerComposer: (el: HTMLTextAreaElement | null) => void;
+  registerComposer: (el: HTMLTextAreaElement, present: boolean) => void;
   setMessages: (m: CurioUIMessage[] | ((m: CurioUIMessage[]) => CurioUIMessage[])) => void;
 }
 
@@ -236,14 +238,20 @@ export default function ThreadProvider({
     document.documentElement.style.setProperty("--thread-w", docked ? `${width}px` : "0px");
   }, [open, mode, width]);
 
-  // — composer focus (the thread's and the hero's composers register here)
+  // — composer focus. Every mounted composer registers (the hero or the top
+  // bar, and the thread's while it's open); focus goes to the one that
+  // mounted last, i.e. the thread's when it's showing.
 
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const registerComposer = useCallback((el: HTMLTextAreaElement | null) => {
-    composerRef.current = el;
+  const composers = useRef<HTMLTextAreaElement[]>([]);
+  const registerComposer = useCallback((el: HTMLTextAreaElement, present: boolean) => {
+    composers.current = composers.current.filter((x) => x !== el);
+    if (present) composers.current.push(el);
   }, []);
   const focusComposer = useCallback(() => {
-    requestAnimationFrame(() => composerRef.current?.focus());
+    requestAnimationFrame(() => {
+      const live = composers.current.filter((el) => el.isConnected);
+      live[live.length - 1]?.focus();
+    });
   }, []);
 
   // — attachments
@@ -263,24 +271,23 @@ export default function ThreadProvider({
 
   const busy = liveStatus === "submitted" || liveStatus === "streaming";
   const classify = useCallback(
-    (text: string) =>
+    (text: string, withAttachments = true) =>
       classifyRules(text, {
         hasWall: wallRef.current.count > 0,
-        attachments: attachments.length,
+        attachments: withAttachments ? attachments.length : 0,
       }),
     [attachments.length],
   );
 
   const submit = useCallback(
-    (raw: string, override?: RouteOverride) => {
+    (raw: string, override?: RouteOverride, withAttachments = true) => {
       const text = raw.trim();
-      if (!text && attachments.length === 0) return;
+      const sent = withAttachments ? attachments : [];
+      if (!text && sent.length === 0) return;
       if (busy) return;
-      const message =
-        text || (attachments.length === 1 ? "Find more like this" : "Find more like these");
-      const route: Route = override ?? classify(message).route;
-      const sent = attachments;
-      setAttachments([]);
+      const message = text || (sent.length === 1 ? "Find more like this" : "Find more like these");
+      const route: Route = override ?? classify(message, withAttachments).route;
+      if (sent.length) setAttachments([]);
       setStopped(false);
 
       if (route === "lookup" || route === "describe") {
@@ -382,10 +389,12 @@ export default function ThreadProvider({
 
   /**
    * Play a recorded run (public/examples/<slug>.json) through the same
-   * components a live turn uses, compressed to a couple of seconds: steps
-   * appear running and settle, look strips fill in image by image, the
-   * exhibit goes up on the wall. The message keeps the run's real timings
-   * and is marked recorded; the thread carries on live from there.
+   * components a live turn uses, at about a third of its real pace (7–10s):
+   * quick enough to beat a live run, slow enough to follow. Prose is written
+   * out word by word, each step shows running for at least a beat before it
+   * settles, look strips fill in image by image, and the exhibit goes up on
+   * the wall. The message keeps the run's real timings and is marked
+   * recorded; the thread carries on live from there.
    */
   const replay = useCallback(
     async (slug: string, prompt: string): Promise<boolean> => {
@@ -406,11 +415,13 @@ export default function ThreadProvider({
         { id: asstId, role: "assistant", parts: [], metadata: { startedAt: t0, recorded: true } },
       ]);
 
-      const TOTAL = 2600;
       const last = Math.max(1, ...rec.parts.map((p) => p.doneAt ?? p.at));
-      const scale = Math.min(1, TOTAL / last);
+      const target = Math.min(10_000, Math.max(7_000, last * 0.3));
+      const scale = Math.min(1, target / last);
       const at = (ms: number) => Math.round(ms * scale);
+      let end = 0;
       const later = (ms: number, fn: () => void) => {
+        end = Math.max(end, ms);
         replayTimers.current.push(setTimeout(fn, ms));
       };
       const edit = (fn: (parts: CurioUIMessage["parts"]) => CurioUIMessage["parts"]) =>
@@ -419,7 +430,24 @@ export default function ThreadProvider({
       for (const p of rec.parts) {
         const start = at(p.at);
         if (p.type === "text") {
-          later(start, () => edit((parts) => [...parts, { type: "text", text: p.text ?? "", state: "done" }]));
+          // written out word by word, like a live stream
+          const words = (p.text ?? "").split(/(?<=\s)/);
+          const duration = Math.min(1400, words.length * 45);
+          const ticks = Math.max(1, Math.ceil(duration / 50));
+          let index = -1;
+          later(start, () =>
+            edit((parts) => {
+              index = parts.length;
+              return [...parts, { type: "text", text: "", state: "streaming" }];
+            }),
+          );
+          for (let t = 1; t <= ticks; t++) {
+            const text = words.slice(0, Math.round((words.length * t) / ticks)).join("");
+            const state = t === ticks ? ("done" as const) : ("streaming" as const);
+            later(start + (duration * t) / ticks, () =>
+              edit((parts) => parts.map((x, j) => (j === index && x.type === "text" ? { ...x, text, state } : x))),
+            );
+          }
         } else if (p.type === "data-step") {
           const final = p.data as StepData;
           const running: StepData = {
@@ -433,12 +461,13 @@ export default function ThreadProvider({
               const part = { type: "data-step" as const, id: p.id, data };
               return i === -1 ? [...parts, part] : parts.map((x, j) => (j === i ? part : x));
             });
-          const end = Math.max(start + 120, at(p.doneAt ?? p.at));
+          // every step shows as running long enough to read
+          const settle = Math.max(start + 350, at(p.doneAt ?? p.at));
           later(start, () => put(running));
           // look strips fill in one image at a time across the step
           if (final.kind === "look" && final.items?.length) {
             final.items.forEach((_, k) =>
-              later(start + ((end - start) * (k + 1)) / (final.items!.length + 1), () =>
+              later(start + ((settle - start) * (k + 1)) / (final.items!.length + 1), () =>
                 put({
                   ...running,
                   items: final.items!.map((it, j) => (j <= k ? it : { ...it, state: "loading" })),
@@ -446,7 +475,7 @@ export default function ThreadProvider({
               ),
             );
           }
-          later(end, () => put(final));
+          later(settle, () => put(final));
         } else if (p.type === "data-exhibit") {
           later(start, () => {
             edit((parts) => [...parts, { type: "data-exhibit", id: p.id, data: p.data as ExhibitData }]);
@@ -455,7 +484,7 @@ export default function ThreadProvider({
           });
         }
       }
-      later(at(last) + 150, () => {
+      later(end + 150, () => {
         setMessages((m) =>
           m.map((x) =>
             x.id === asstId

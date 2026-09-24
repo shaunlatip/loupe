@@ -96,8 +96,7 @@ export default function HomeHero({
           </div>
         </section>
 
-        <section className="flex flex-col gap-3" aria-label="Or browse">
-          <h3 className="caption">Or browse</h3>
+        <section aria-label="Browse by movement or subject">
           <dl className="flex flex-col gap-2">
             {browse.map(({ group, items }) => (
               <div key={group} className="flex items-baseline gap-x-4 gap-y-2 max-md:flex-col max-md:gap-2">

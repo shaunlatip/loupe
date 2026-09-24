@@ -260,19 +260,6 @@ button:active:not(:disabled):not(.press-none) {
   );
 }
 
-/* A wall label on an exhibit's tint (src/lib/tint.ts): the wash would all but
- * vanish at the tint's lightness, so chips and wash controls on the band turn
- * to translucent paper instead. Menus opening from the band sit on paper and
- * keep the ordinary wash. */
-.label-tinted {
-  --color-wash: rgb(255 255 255 / 0.62);
-  --color-wash-strong: rgb(255 255 255 / 0.95);
-}
-.label-tinted [role="menu"] {
-  --color-wash: #f2f2f2;
-  --color-wash-strong: #e6e6e6;
-}
-
 /* loading-dev spinners, squared to the register: Flip and Gather ship with
  * slightly rounded blocks. Morph keeps its square-to-circle turn on purpose
  * (motion only; it reads as a loupe coming into focus). */

@@ -3,19 +3,19 @@ import { hslToRgb, rgbToOklab, type HSL } from "./color";
 
 /**
  * A surface tint taken from the art itself: the hue of a work's dominant
- * colour (or an exhibit's, averaged) at paper lightness and a whisper of
- * chroma, for the few places a piece gets a surround (the detail view's
- * wall, a card's frame before its image lands, an exhibit's wall label).
+ * colour at paper lightness and a whisper of chroma, for the two places a
+ * single piece gets a surround (the detail view's wall, a card's frame
+ * before its image lands). Not the wall label: a tinted band there read as
+ * a separate fill competing with the works.
  *
  * The limits keep it a tint, not a colour: lightness pinned at 0.95–0.96 in
  * OKLCH (where ink body text stays above 15:1 and #6b6b6b secondary text
  * above 4.5:1) and chroma capped at 0.018. The cap is low on purpose: a
  * museum's "dominant colour" is often a salient accent (AIC gives a Homer
  * seascape the green of one wave's highlight), so the tint should only
- * lean, never announce. Averaging happens in OKLab (a, b),
- * so works that disagree cancel toward grey: a mixed exhibit stays neutral,
- * and only a show with a shared palette picks up its colour. Near-grey
- * results return undefined so the surface keeps its plain wash.
+ * lean, never announce. Several colours average in OKLab (a, b), so ones
+ * that disagree cancel toward grey. Near-grey results return undefined so
+ * the surface keeps its plain wash.
  */
 
 const MAX_CHROMA = 0.018;
@@ -43,12 +43,4 @@ export function tintOf(colors: (HSL | undefined)[], lightness = 0.95): string | 
 /** One work's tint. */
 export function artworkTint(artwork: Pick<Artwork, "color">, lightness?: number): string | undefined {
   return tintOf([artwork.color], lightness);
-}
-
-/** An exhibit's tint, when enough of its works report a colour to speak for
- *  the whole show (a single coloured work shouldn't dress the wall). */
-export function exhibitTint(artworks: Pick<Artwork, "color">[]): string | undefined {
-  const colors = artworks.map((a) => a.color).filter((c): c is HSL => !!c);
-  if (colors.length < Math.max(2, Math.ceil(artworks.length / 3))) return undefined;
-  return tintOf(colors, 0.96);
 }

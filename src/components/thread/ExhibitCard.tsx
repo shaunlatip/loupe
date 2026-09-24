@@ -103,7 +103,9 @@ export default function ExhibitCard({
         </div>
       )}
 
-      {recorded && (
+      {/* a development aid: in production a replayed example reads as any
+          other exhibit */}
+      {recorded && process.env.NODE_ENV === "development" && (
         <p className="caption">
           Recorded run
           {onRunFresh && (

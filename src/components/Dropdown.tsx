@@ -18,10 +18,10 @@ export function CaretDown({ className = "" }: { className?: string }) {
 }
 
 /**
- * Flat-register dropdown. The trigger sits between an outline and a solid
- * button: a wash fill at rest, a deeper wash on hover or while open, and an
- * ink fill once it holds a live selection, so a resting bar reads quiet and a
- * changed one reads at a glance. The panel is paper with a 1px ink rule and
+ * Flat-register dropdown. The trigger is a light outline at rest (ink at a
+ * quarter strength), full ink on hover or while open, and an ink fill once it
+ * holds a live selection, so a resting bar reads quiet and a changed one
+ * reads at a glance. The panel is paper with a 1px ink rule and
  * pops in from the trigger edge (see .animate-pop in globals.css). Closes on outside
  * click, Escape (focus returns to the trigger), or when a child calls the
  * `close` render-prop. Arrow keys walk the option rows; Home/End jump. No
@@ -96,12 +96,12 @@ export default function Dropdown({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex items-center gap-1.5 border px-3 py-1 text-[12px] ${
+        className={`flex items-center gap-1.5 border px-3 py-1 text-[12px] transition-colors duration-150 ${
           active
             ? "border-ink bg-ink text-paper"
             : open
-              ? "border-transparent bg-wash-strong"
-              : "border-transparent bg-wash hover:bg-wash-strong"
+              ? "border-ink"
+              : "border-ink/25 hover:border-ink"
         }`}
       >
         {label}

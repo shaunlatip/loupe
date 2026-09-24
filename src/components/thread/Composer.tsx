@@ -7,6 +7,9 @@ import type { Attachment, Route } from "@/lib/thread/types";
 import Icon from "../Icon";
 import { useThread, type RouteOverride } from "./ThreadProvider";
 
+/** the override menu's height, for choosing whether it fits above */
+const MENU_HEIGHT = 240;
+
 const OVERRIDES: { id: RouteOverride; label: string; hint: string }[] = [
   { id: null, label: "Let Curio decide", hint: "Search a name, read a description, or curate a brief" },
   { id: "lookup", label: "Search exactly", hint: "The museums' own search, as typed" },
@@ -72,17 +75,26 @@ export default function Composer({
   variant,
   placeholder,
   autoFocus = false,
+  attachmentsHere = true,
 }: {
   /** hero: the empty wall's big box · bar: one line above the wall ·
    *  thread: the bottom of the thread */
   variant: "hero" | "bar" | "thread";
   placeholder: string;
   autoFocus?: boolean;
+  /** show (and send) the attached works here; off for the top bar while the
+   *  thread, which has its own input, is open */
+  attachmentsHere?: boolean;
 }) {
-  const { attachments, detach, submit, classify, chatStatus, stop, registerComposer } = useThread();
+  const { attachments: allAttachments, detach, submit, classify, chatStatus, stop, registerComposer } =
+    useThread();
+  const attachments = attachmentsHere ? allAttachments : [];
   const [value, setValue] = useState("");
   const [override, setOverride] = useState<RouteOverride>(null);
   const [menu, setMenu] = useState(false);
+  // The override menu opens above the button (the thread's input sits at
+  // the bottom of the screen) unless there isn't room there, e.g. the top bar.
+  const [menuBelow, setMenuBelow] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const busy = chatStatus === "submitted" || chatStatus === "streaming";
@@ -92,12 +104,21 @@ export default function Composer({
   // The route preview settles 150ms after typing stops.
   const [route, setRoute] = useState<Route>("lookup");
   useEffect(() => {
-    const t = setTimeout(() => setRoute(classify(value || " ").route), 150);
+    const t = setTimeout(() => setRoute(classify(value || " ", attachmentsHere).route), 150);
     return () => clearTimeout(t);
-  }, [value, classify]);
+  }, [value, classify, attachmentsHere]);
   const effective: Route = override ?? (attachments.length > 0 ? "curate" : route);
   // Empty, the button just says Ask; once there's text it names the route.
   const verb = value.trim() || attachments.length ? routeVerb(effective) : "Ask";
+
+  const toggleMenu = () => {
+    if (!menu && menuRef.current) {
+      const r = menuRef.current.getBoundingClientRect();
+      const need = MENU_HEIGHT + 8;
+      setMenuBelow(r.top < need && window.innerHeight - r.bottom > r.top);
+    }
+    setMenu((v) => !v);
+  };
 
   // Grow with the text: min 1 line (2 on the hero), max 8 (4 in the bar).
   useLayoutEffect(() => {
@@ -112,8 +133,9 @@ export default function Composer({
 
   const setRef = useCallback(
     (el: HTMLTextAreaElement | null) => {
+      if (ref.current && ref.current !== el) registerComposer(ref.current, false);
       ref.current = el;
-      if (el) registerComposer(el);
+      if (el) registerComposer(el, true);
     },
     [registerComposer],
   );
@@ -139,7 +161,7 @@ export default function Composer({
   const send = () => {
     if (busy) return;
     if (!value.trim() && attachments.length === 0) return;
-    submit(value, override);
+    submit(value, override, attachmentsHere);
     setValue("");
     setOverride(null);
   };
@@ -229,7 +251,7 @@ export default function Composer({
               aria-haspopup="menu"
               aria-expanded={menu}
               title="How to read this"
-              onClick={() => setMenu((v) => !v)}
+              onClick={toggleMenu}
               className={`press-none flex items-center border border-l-paper/35 px-1.5 text-paper transition-[background-color,border-color] duration-150 ${
                 menu ? "border-ink bg-ink" : "border-accent bg-accent hover:border-ink hover:bg-ink"
               }`}
@@ -239,7 +261,9 @@ export default function Composer({
             {menu && (
               <div
                 role="menu"
-                className="animate-pop-right absolute right-0 bottom-full z-30 mb-1 w-72 border border-ink bg-paper py-1"
+                className={`animate-pop-right absolute right-0 z-30 w-72 border border-ink bg-paper py-1 ${
+                  menuBelow ? "top-full mt-1" : "bottom-full mb-1"
+                }`}
               >
                 {OVERRIDES.map((o) => (
                   <button

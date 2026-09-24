@@ -116,7 +116,6 @@ function ResultGrid({
   emptyHint,
   facts,
   aside,
-  labelStyle,
   loadingLabel = "Searching the collections",
   onOpen,
 }: {
@@ -134,8 +133,6 @@ function ResultGrid({
   facts?: ReactNode;
   /** right end of the label's fact row (Sort) */
   aside?: ReactNode;
-  /** the label band's background (a derived exhibit colour), if any */
-  labelStyle?: React.CSSProperties;
   /** what the shimmer says while loading */
   loadingLabel?: string;
   onOpen: (a: Artwork) => void;
@@ -152,12 +149,7 @@ function ResultGrid({
       {/* Wall label — the museum-caption register: what you're looking at,
           then how much of it and from where. */}
       {(heading || note || count > 0 || loading) && (
-        <header
-          className={`mb-8 flex flex-col gap-3 border-b border-ink pb-4 transition-[background-color] duration-200 ${
-            labelStyle ? "label-tinted -mx-6 px-6 pt-5" : ""
-          }`}
-          style={labelStyle}
-        >
+        <header className="mb-8 flex flex-col gap-3 border-b border-ink pb-4">
           {heading && (
             <h2 className="balance text-[32px] leading-[1.1] font-semibold tracking-[-0.015em] max-md:text-[24px]">
               {heading}

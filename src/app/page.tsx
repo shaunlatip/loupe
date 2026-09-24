@@ -29,7 +29,6 @@ import CollectionsBar from "@/components/CollectionsBar";
 import SaveMenu from "@/components/SaveMenu";
 import HomeHero from "@/components/HomeHero";
 import examplePreviews from "@/data/examples-index.json";
-import { exhibitTint } from "@/lib/tint";
 import Icon from "@/components/Icon";
 import ScrollTopButton from "@/components/ScrollTopButton";
 import { sourceLabel } from "@/components/SourceBadge";
@@ -547,12 +546,6 @@ export default function Home() {
 
   const sortAside = useMemo(() => <SortMenu sort={sort} onSort={chooseSort} />, [sort, chooseSort]);
 
-  // An exhibit's wall label takes a whisper of the show's shared colour.
-  const labelStyle = useMemo(() => {
-    const tint = results.origin === "curio" ? exhibitTint(results.artworks) : undefined;
-    return tint ? { backgroundColor: tint } : undefined;
-  }, [results.origin, results.artworks]);
-
   const facts = useMemo(() => {
     if (reading) {
       return (
@@ -650,7 +643,6 @@ export default function Home() {
                 loading={loading}
                 facts={facts}
                 aside={sortAside}
-                labelStyle={labelStyle}
                 emptyHint={
                   results.origin === "collection" ? (
                     <span>Open any work and press Save to add it here.</span>
@@ -796,13 +788,18 @@ function Credit() {
   );
 }
 
-/** Above the wall: the one input, whenever the thread (which has its own) is closed. */
+/** Above the wall: the one input, always there. With the thread open,
+ *  attached works belong to the thread's own input, so they show (and send)
+ *  only there. */
 function TopComposer() {
   const { open } = useThread();
-  if (open) return null;
   return (
     <div className="animate-fade pt-5">
-      <Composer variant="bar" placeholder="Hokusai, fog over water, cats with opinions…" />
+      <Composer
+        variant="bar"
+        placeholder="Hokusai, fog over water, cats with opinions…"
+        attachmentsHere={!open}
+      />
     </div>
   );
 }
