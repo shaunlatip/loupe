@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { enabledSources, searchSources } from "@/lib/adapters";
+import { enabledSources } from "@/lib/adapters";
+import { cachedSearch } from "@/lib/search-cache";
 import { getCategory } from "@/lib/presets";
 import { searchQuerySchema } from "@/lib/search-schema";
 import type { SourceId } from "@/lib/types";
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
       );
     }
     // One SearchQuery — its facets fan out per source inside searchSources.
-    const result = await searchSources(sources, category.query);
+    const result = await cachedSearch(sources, category.query);
     return NextResponse.json(result);
   }
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ artworks: [], errors: [] });
   }
 
-  const result = await searchSources(sources, { q, artist });
+  const result = await cachedSearch(sources, { q, artist });
   return NextResponse.json(result);
 }
 
@@ -67,6 +68,6 @@ export async function POST(req: NextRequest) {
     );
   }
   const sources = (parsed.data.sources as SourceId[] | undefined) ?? enabledSources();
-  const result = await searchSources(sources, parsed.data.query);
+  const result = await cachedSearch(sources, parsed.data.query);
   return NextResponse.json(result);
 }
