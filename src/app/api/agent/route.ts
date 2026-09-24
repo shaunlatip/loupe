@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AgentStreamEvent } from "@/lib/agent/tools";
 import { runOpenRouterCurator } from "@/lib/agent/openrouter-engine";
+import { getArtworkById } from "@/lib/adapters";
 import { useClaudeSdk } from "@/lib/engine";
 import { llmConfigured } from "@/lib/llm";
 import { clientKey, rateLimited } from "@/lib/rate-limit";
@@ -21,6 +22,41 @@ const WINDOW_MS = 10 * 60 * 1000;
 interface AgentRequestBody {
   sessionId?: string;
   message: string;
+  /** ids of works the user attached from the wall ("Add to chat") */
+  context?: unknown;
+}
+
+const CONTEXT_LIMIT = 8;
+const ARTWORK_ID = /^[a-z]+:[\w.-]+$/;
+
+/**
+ * Attached works arrive as ids only and are looked up server-side, so the
+ * records (and the image URLs view_artworks later fetches) come from the
+ * museum adapters rather than from the request. Found records seed this
+ * turn's cache; the message gets a plain-text header naming them.
+ */
+async function withAttachedWorks(
+  message: string,
+  context: unknown,
+  cache: Map<string, Artwork>,
+): Promise<string> {
+  const ids = Array.isArray(context)
+    ? [...new Set(context.filter((id): id is string => typeof id === "string" && ARTWORK_ID.test(id)))].slice(
+        0,
+        CONTEXT_LIMIT,
+      )
+    : [];
+  if (ids.length === 0) return message;
+
+  const works = await Promise.all(ids.map((id) => getArtworkById(id).catch(() => null)));
+  const lines = ids.map((id, i) => {
+    const a = works[i];
+    if (!a) return `- ${id} (details unavailable)`;
+    cache.set(a.id, a);
+    const size = a.dims?.width && a.dims?.height ? `${a.dims.width}×${a.dims.height}px` : undefined;
+    return `- ${[a.id, a.title, a.artist, a.date, a.medium, size].filter(Boolean).join(" · ")}`;
+  });
+  return `The user attached ${ids.length === 1 ? "this work" : "these works"} from the wall as context. Use view_artworks on the ids to see ${ids.length === 1 ? "it" : "them"}.\n${lines.join("\n")}\n\n${message}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -69,12 +105,13 @@ export async function POST(req: NextRequest) {
       };
 
       try {
+        const message = await withAttachedWorks(body.message, body.context, ctx.cache);
         if (claude) {
           // dynamic import so the Agent SDK never loads on the hosted path
           const { runClaudeCurator } = await import("@/lib/agent/claude-engine");
-          await runClaudeCurator(body.message, body.sessionId, ctx);
+          await runClaudeCurator(message, body.sessionId, ctx);
         } else {
-          await runOpenRouterCurator(body.message, body.sessionId, ctx);
+          await runOpenRouterCurator(message, body.sessionId, ctx);
         }
       } catch (err) {
         emit({ type: "error", message: err instanceof Error ? err.message : String(err) });

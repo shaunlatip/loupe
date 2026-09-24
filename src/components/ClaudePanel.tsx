@@ -19,7 +19,7 @@ import type { Artwork } from "@/lib/types";
  *   stopped    — you pressed Stop
  */
 type Turn =
-  | { id: number; kind: "user"; text: string }
+  | { id: number; kind: "user"; text: string; context?: Artwork[] }
   | { id: number; kind: "assistant"; text: string }
   | {
       id: number;
@@ -30,8 +30,14 @@ type Turn =
       summary?: string;
     }
   | { id: number; kind: "selection"; artworks: Artwork[]; note: string }
-  | { id: number; kind: "error"; label: string; retry?: string }
+  | { id: number; kind: "error"; label: string; retry?: Retry }
   | { id: number; kind: "stopped" };
+
+/** What Try again resends: the message plus any works attached to it. */
+interface Retry {
+  message: string;
+  context: Artwork[];
+}
 
 /** Omit that distributes over the union, so each turn shape keeps its fields. */
 type TurnInput = Turn extends infer T ? (T extends Turn ? Omit<T, "id"> : never) : never;
@@ -127,10 +133,17 @@ export default function ClaudePanel({
   open,
   onClose,
   onSelection,
+  context,
+  onRemoveContext,
+  onClearContext,
 }: {
   open: boolean;
   onClose: () => void;
   onSelection: (artworks: Artwork[], note: string) => void;
+  /** works attached from the detail view ("Add to chat"), sent with the next message */
+  context: Artwork[];
+  onRemoveContext: (id: string) => void;
+  onClearContext: () => void;
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [value, setValue] = useState("");
@@ -142,7 +155,6 @@ export default function ClaudePanel({
   const nextId = useRef(1);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const lastUser = useRef<string>("");
 
   const push = useCallback((turn: TurnInput) => {
     setTurns((t) => [...t, { ...turn, id: nextId.current++ } as Turn]);
@@ -171,9 +183,9 @@ export default function ClaudePanel({
   }, []);
 
   const send = useCallback(
-    async (message: string) => {
-      lastUser.current = message;
-      push({ kind: "user", text: message });
+    async (message: string, attached: Artwork[] = []) => {
+      const retry: Retry = { message, context: attached };
+      push({ kind: "user", text: message, context: attached.length ? attached : undefined });
       setBusy(true);
       setStartedAt(Date.now());
       const abort = new AbortController();
@@ -182,7 +194,11 @@ export default function ClaudePanel({
         const res = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message, sessionId: sessionRef.current }),
+          body: JSON.stringify({
+            message,
+            sessionId: sessionRef.current,
+            context: attached.map((a) => a.id),
+          }),
           signal: abort.signal,
         });
         if (!res.ok || !res.body) {
@@ -246,13 +262,13 @@ export default function ClaudePanel({
               if (ev.sessionId) sessionRef.current = ev.sessionId;
               if (ev.model) setModel(ev.model);
               if (ev.error) {
-                push({ kind: "error", label: `The turn ended early: ${ev.error}.`, retry: message });
+                push({ kind: "error", label: `The turn ended early: ${ev.error}.`, retry });
               }
             } else if (ev.type === "error") {
               push({
                 kind: "error",
                 label: ev.message ?? "Something went wrong.",
-                retry: message,
+                retry,
               });
             }
           }
@@ -264,7 +280,7 @@ export default function ClaudePanel({
           push({
             kind: "error",
             label: err instanceof Error ? err.message : String(err),
-            retry: message,
+            retry,
           });
         }
       } finally {
@@ -289,12 +305,22 @@ export default function ClaudePanel({
     inputRef.current?.focus();
   }, [stop]);
 
+  // Attached works can go on their own: an empty message becomes a request
+  // for more in the same vein.
   const submit = useCallback(() => {
-    const message = value.trim();
+    const message =
+      value.trim() || (context.length === 1 ? "Find more like this" : context.length > 1 ? "Find more like these" : "");
     if (!message || busy) return;
     setValue("");
-    void send(message);
-  }, [value, busy, send]);
+    onClearContext();
+    void send(message, context);
+  }, [value, busy, send, context, onClearContext]);
+
+  // A work attached while the panel is already open (it sits under the
+  // detail view) puts the caret back in the composer once the view closes.
+  useEffect(() => {
+    if (open && context.length > 0) inputRef.current?.focus();
+  }, [open, context.length]);
 
   if (!open) return null;
 
@@ -368,7 +394,26 @@ export default function ClaudePanel({
         {turns.map((turn) => (
           <div key={turn.id} className="animate-rise">
             {turn.kind === "user" && (
-              <div className="ml-8 flex justify-end">
+              <div className="ml-8 flex flex-col items-end gap-1">
+                {turn.context && (
+                  <div className="flex gap-1">
+                    {turn.context.map((a) => (
+                      <span
+                        key={a.id}
+                        className="block h-10 w-10 border border-ink bg-wash"
+                        title={`${a.title}, ${a.artist}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={a.imageThumb}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                          className="h-full w-full object-cover"
+                        />
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <p className="pretty max-w-full bg-ink px-3 py-2 text-[13px] leading-relaxed text-paper">
                   {turn.text}
                 </p>
@@ -454,7 +499,7 @@ export default function ClaudePanel({
                 {turn.retry && !busy && (
                   <button
                     type="button"
-                    onClick={() => void send(turn.retry!)}
+                    onClick={() => void send(turn.retry!.message, turn.retry!.context)}
                     className="caption press-none self-start underline underline-offset-2 hover:text-ink"
                   >
                     Try again
@@ -478,8 +523,41 @@ export default function ClaudePanel({
         <div ref={bottomRef} />
       </div>
 
+      {context.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-ink px-4 pt-3 pb-1" aria-label="Attached works">
+          {context.map((a) => (
+            <span
+              key={a.id}
+              className="animate-rise flex max-w-full items-center gap-2 border border-ink text-[12px]"
+            >
+              <span className="block h-7 w-7 shrink-0 border-r border-ink bg-wash">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={a.imageThumb}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover"
+                />
+              </span>
+              <span className="min-w-0 truncate" title={`${a.title}, ${a.artist}`}>
+                {a.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemoveContext(a.id)}
+                aria-label={`Remove ${a.title} from the chat`}
+                title="Remove"
+                className="invert-hover press-none self-stretch border-l border-ink px-2"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <form
-        className="flex items-end border-t border-ink"
+        className={`flex items-end ${context.length > 0 ? "" : "border-t border-ink"}`}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -498,7 +576,13 @@ export default function ClaudePanel({
           rows={2}
           enterKeyHint="send"
           aria-label="Message the curator"
-          placeholder={hasTurns ? "Refine, or ask for something else…" : "Describe the backdrop you need…"}
+          placeholder={
+            context.length > 0
+              ? "Ask about this, or press Send to find more like it…"
+              : hasTurns
+                ? "Refine, or ask for something else…"
+                : "Describe the backdrop you need…"
+          }
           className="min-w-0 flex-1 resize-none self-stretch bg-paper px-4 py-3 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground focus:bg-wash"
         />
         {busy ? (
@@ -512,7 +596,7 @@ export default function ClaudePanel({
         ) : (
           <button
             type="submit"
-            disabled={!value.trim()}
+            disabled={!value.trim() && context.length === 0}
             className="invert-hover shrink-0 self-stretch border-l border-ink px-5 text-[13px] font-semibold disabled:opacity-40"
           >
             Send

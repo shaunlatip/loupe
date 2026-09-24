@@ -270,6 +270,19 @@ export default function Home() {
   const [open, setOpen] = useState<Artwork | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  // Works attached to the curator's next message from the detail view.
+  const [chatContext, setChatContext] = useState<Artwork[]>([]);
+  const addToChat = useCallback((artwork: Artwork) => {
+    setChatContext((prev) => (prev.some((a) => a.id === artwork.id) ? prev : [...prev, artwork]));
+    setOpen(null);
+    setSaveOpen(false);
+    setPanelOpen(true);
+  }, []);
+  const removeFromChat = useCallback(
+    (id: string) => setChatContext((prev) => prev.filter((a) => a.id !== id)),
+    [],
+  );
+  const clearChatContext = useCallback(() => setChatContext([]), []);
 
   const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
   const [artist, setArtist] = useState("");
@@ -983,6 +996,12 @@ export default function Home() {
                   {downloading ? "Fetching…" : "Download"}
                 </button>
               </div>
+              <button
+                onClick={() => addToChat(open)}
+                className="invert-hover border border-ink px-4 py-2 text-[13px] font-semibold"
+              >
+                {chatContext.some((a) => a.id === open.id) ? "In chat" : "Add to chat"}
+              </button>
               {results.origin === "collection" && activeCollection && (
                 <button
                   onClick={() => removeFromActiveCollection(open)}
@@ -1013,6 +1032,9 @@ export default function Home() {
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         onSelection={onSelection}
+        context={chatContext}
+        onRemoveContext={removeFromChat}
+        onClearContext={clearChatContext}
       />
     </>
   );
