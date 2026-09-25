@@ -80,7 +80,7 @@ export default function SaveMenu({
           onChange={(e) => setName(e.target.value)}
           placeholder="New collection"
           aria-label="New collection name"
-          className="min-w-0 flex-1 bg-wash px-3 py-2 text-[12px] text-ink outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-wash px-3 py-2 text-[12px] text-ink outline-none pointer-coarse:text-[16px] placeholder:text-muted-foreground"
         />
         <button
           type="submit"

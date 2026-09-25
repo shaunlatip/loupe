@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 /** Phosphor CaretDown (regular weight, MIT) — inlined to avoid a dep for one
  * glyph. More legible than a unicode ▾. Rotates 180° when its menu is open. */
@@ -51,6 +51,23 @@ export default function Dropdown({
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
 
+  // Keep the panel on screen: a right-aligned menu whose trigger sits near
+  // the left edge (the wall tools wrap to the left on a phone) would open
+  // off the left of the window. Measured before paint and nudged sideways
+  // with `translate`, which composes with the pop-in's transform.
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open || !panel.current) {
+      setShift(0);
+      return;
+    }
+    const r = panel.current.getBoundingClientRect();
+    const edge = 16;
+    const vw = document.documentElement.clientWidth;
+    if (r.left < edge) setShift(edge - r.left);
+    else if (r.right > vw - edge) setShift(Math.max(edge - r.left, vw - edge - r.right));
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -95,7 +112,7 @@ export default function Dropdown({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex items-center gap-1.5 border border-ink px-3 py-1 text-[12px] ${
+        className={`flex items-center gap-1.5 border border-ink px-3 py-1 text-[12px] pointer-coarse:py-1.5 max-sm:gap-1 max-sm:px-2.5 ${
           active ? "bg-ink text-paper" : "invert-hover"
         }`}
       >
@@ -110,9 +127,10 @@ export default function Dropdown({
         <div
           ref={panel}
           role="menu"
-          className={`absolute z-30 mt-1 min-w-full border border-ink bg-paper ${
+          className={`absolute z-30 mt-1 min-w-full max-w-[calc(100vw-32px)] border border-ink bg-paper ${
             align === "right" ? "animate-pop-right right-0" : "animate-pop left-0"
           } ${panelClassName}`}
+          style={shift ? { translate: `${shift}px 0` } : undefined}
         >
           {children(() => setOpen(false))}
         </div>
@@ -144,7 +162,7 @@ export function DropdownOption({
       data-option
       onClick={onClick}
       aria-checked={selected}
-      className="invert-hover press-none flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px] focus-visible:outline-offset-[-2px]"
+      className="invert-hover press-none flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[12px] focus-visible:outline-offset-[-2px] pointer-coarse:py-2.5"
     >
       <span
         aria-hidden

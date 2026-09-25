@@ -103,7 +103,7 @@ export default function CollectionsMenu({
                       setOpen(false);
                     }}
                     aria-current={isActive || undefined}
-                    className={`press-none flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] ${
+                    className={`press-none flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] pointer-coarse:py-2.5 ${
                       isActive ? "bg-ink text-paper" : "invert-hover"
                     }`}
                   >
@@ -117,7 +117,7 @@ export default function CollectionsMenu({
                     aria-busy={isExporting}
                     aria-label={`Download ${c.name} as a zip`}
                     title={c.count === 0 ? "Nothing to download yet" : isExporting ? "Zipping" : "Download as zip"}
-                    className="invert-hover press-none flex w-8 shrink-0 items-center justify-center disabled:pointer-events-none disabled:opacity-30"
+                    className="invert-hover press-none flex w-8 shrink-0 items-center justify-center pointer-coarse:w-10 disabled:pointer-events-none disabled:opacity-30"
                   >
                     <Icon icon={Download} size={14} className={isExporting ? "blink" : undefined} />
                   </button>
@@ -126,7 +126,7 @@ export default function CollectionsMenu({
                     onClick={() => onDelete(c.id)}
                     aria-label={`Delete ${c.name}`}
                     title="Delete collection"
-                    className="invert-hover press-none flex w-8 shrink-0 items-center justify-center"
+                    className="invert-hover press-none flex w-8 shrink-0 items-center justify-center pointer-coarse:w-10"
                   >
                     <Icon icon={Trash2} size={14} />
                   </button>

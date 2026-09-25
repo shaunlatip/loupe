@@ -89,7 +89,7 @@ export default function ExhibitCard({
               type="button"
               disabled={busy}
               onClick={() => onFollowUp(f)}
-              className="bg-wash px-2.5 py-1 text-[12px] leading-[18px] hover:bg-wash-strong disabled:opacity-40"
+              className="bg-wash px-2.5 py-1 text-[12px] leading-[18px] hover:bg-wash-strong disabled:opacity-40 pointer-coarse:py-1.5"
             >
               {f}
             </button>
