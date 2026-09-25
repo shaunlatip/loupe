@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { Agentation } from "agentation";
@@ -36,6 +36,16 @@ export const metadata: Metadata = {
       "Public-domain paintings from five museums' open collections, curated by an agent.",
     type: "website",
   },
+};
+
+// The on-screen keyboard shrinks the layout (Chrome on Android), so the
+// thread's input at the bottom of its sheet stays above it. The paper
+// colour tints the browser's own bars.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({

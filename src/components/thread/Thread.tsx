@@ -145,6 +145,39 @@ function StatusLine() {
   );
 }
 
+/**
+ * The phone's sheet sizes to the visual viewport, the part of the screen the
+ * on-screen keyboard leaves, so the input stays above the keyboard instead of
+ * under it (iOS Safari doesn't shrink the layout viewport for it). While the
+ * sheet is up the page behind it doesn't scroll.
+ */
+function useSheetViewport(active: boolean) {
+  const [box, setBox] = useState<{ top: number; height: number }>();
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!active) {
+      setBox(undefined);
+      return;
+    }
+    const root = document.documentElement;
+    const overflow = root.style.overflow;
+    root.style.overflow = "hidden";
+    // pinch-zoomed, the visual viewport is the zoomed-in patch: leave the
+    // sheet full height rather than shrink it into that patch
+    const update = () =>
+      vv && setBox(vv.scale > 1.01 ? undefined : { top: vv.offsetTop, height: vv.height });
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    return () => {
+      root.style.overflow = overflow;
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+    };
+  }, [active]);
+  return box;
+}
+
 /** Suggestions shown in an empty thread: the same starting points as the wall. */
 function EmptyThread({ onPick }: { onPick: (slug: string) => void }) {
   return (
@@ -224,10 +257,18 @@ export default function Thread({
   const model = lastAssistant?.metadata?.model;
   const lastIndex = messages.length - 1;
 
+  const sheetBox = useSheetViewport(open && mode === "sheet");
+
   if (!open) return null;
 
   const style =
-    mode === "docked" ? { width } : mode === "overlay" ? { width: Math.min(width, 520) } : undefined;
+    mode === "docked"
+      ? { width }
+      : mode === "overlay"
+        ? { width: Math.min(width, 520) }
+        : sheetBox
+          ? { top: sheetBox.top, bottom: "auto", height: sheetBox.height }
+          : undefined;
 
   return (
     <>
@@ -264,7 +305,7 @@ export default function Thread({
                 onClick={reset}
                 aria-label="Start a new thread"
                 title="New thread"
-                className="press-none flex h-8 w-8 items-center justify-center text-ink/70 hover:bg-wash hover:text-ink"
+                className="press-none flex h-8 w-8 items-center justify-center text-ink/70 hover:bg-wash hover:text-ink pointer-coarse:h-10 pointer-coarse:w-10"
               >
                 <Icon icon={RotateCcw} size={16} />
               </button>
@@ -274,7 +315,7 @@ export default function Thread({
               onClick={() => setOpen(false)}
               aria-label="Close the thread"
               title="Close (Esc)"
-              className="press-none flex h-8 w-8 items-center justify-center text-ink/70 hover:bg-wash hover:text-ink"
+              className="press-none flex h-8 w-8 items-center justify-center text-ink/70 hover:bg-wash hover:text-ink pointer-coarse:h-10 pointer-coarse:w-10"
             >
               <Icon icon={X} size={16} />
             </button>

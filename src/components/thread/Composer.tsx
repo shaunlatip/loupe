@@ -204,8 +204,8 @@ export default function Composer({
           hero
             ? "px-4 pt-4 text-[17px] leading-[26px]"
             : bar
-              ? "flex-1 px-4 py-3 text-[14px] leading-[22px]"
-              : "px-3 pt-2.5 text-[13px] leading-[21px]"
+              ? "flex-1 px-4 py-3 text-[14px] leading-[22px] pointer-coarse:text-[16px]"
+              : "px-3 pt-2.5 text-[13px] leading-[21px] pointer-coarse:text-[16px] pointer-coarse:leading-[22px]"
         }`}
       />
       <div
