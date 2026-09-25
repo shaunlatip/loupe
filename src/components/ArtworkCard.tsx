@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@/lib/types";
 import { useCalmScore } from "@/lib/calm-client";
+import { artworkTint } from "@/lib/tint";
+import CommentCard from "./CommentCard";
 import SourceBadge from "./SourceBadge";
 
 /** Cards past this reading-order index enter without delay — the stagger is
@@ -10,17 +12,87 @@ import SourceBadge from "./SourceBadge";
 const STAGGER_LIMIT = 16;
 const STAGGER_STEP_MS = 28;
 
+/** Rest on a card this long before its comment opens: long enough that
+ *  passing over the wall (or glancing at a picture) doesn't set one off,
+ *  short enough to feel like it answered. */
+const COMMENT_INTENT_MS = 350;
+/** The comment's width beside the picture, and its distance from the frame. */
+const COMMENT_W = 280;
+const COMMENT_GAP = 12;
+
+type CommentSide = "right" | "left" | "top" | "bottom";
+
+/** One comment open on the wall at a time: opening one closes the last
+ *  (a keyboard-focused card and a hovered one would otherwise both show). */
+let closeOpenComment: (() => void) | null = null;
+
+/**
+ * Where a comment goes: beside the picture where the wall has room for it
+ * (right first, the way a label reads), else above it, or below it when the
+ * picture sits too near the top of the window for anything to fit above.
+ * `offset` nudges a side comment down so it starts on screen when the
+ * picture's top has scrolled away.
+ */
+function placeComment(frame: DOMRect, bounds: DOMRect): { side: CommentSide; offset: number } {
+  const offset = Math.max(0, Math.min(12 - frame.top, frame.height - 48));
+  if (frame.right + COMMENT_GAP + COMMENT_W <= bounds.right) return { side: "right", offset };
+  if (frame.left - COMMENT_GAP - COMMENT_W >= bounds.left) return { side: "left", offset };
+  return { side: frame.top > 240 ? "top" : "bottom", offset: 0 };
+}
+
 export default function ArtworkCard({
   artwork,
   index = 0,
+  comment,
   onOpen,
 }: {
   artwork: Artwork;
   /** reading-order position, drives the entrance stagger */
   index?: number;
+  /** Curio's word on this work, when it has one */
+  comment?: string;
   onOpen: (a: Artwork) => void;
 }) {
   const calm = useCalmScore(artwork);
+  const commentId = useId();
+
+  // Curio's comment: at rest only an accent line along the frame's top edge
+  // says there is one. Pointing at the card (or focusing it) opens it beside
+  // the picture, outside the frame, and it writes itself out. It floats over
+  // the wall, so nothing moves.
+  const frameRef = useRef<HTMLSpanElement>(null);
+  const [commentAt, setCommentAt] = useState<{ side: CommentSide; offset: number } | null>(null);
+  const commentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // stable across renders (it only touches a ref and a state setter), so the
+  // wall-wide "which one is open" check can compare it
+  const closer = useRef<(() => void) | null>(null);
+  closer.current ??= () => {
+    if (commentTimer.current) clearTimeout(commentTimer.current);
+    commentTimer.current = null;
+    setCommentAt(null);
+    if (closeOpenComment === closer.current) closeOpenComment = null;
+  };
+  const closeComment = closer.current;
+  const openComment = () => {
+    commentTimer.current = null;
+    const frame = frameRef.current;
+    const bounds = frame?.closest("section")?.getBoundingClientRect();
+    if (!comment || !frame || !bounds) return;
+    if (closeOpenComment !== closeComment) closeOpenComment?.();
+    closeOpenComment = closeComment;
+    setCommentAt(placeComment(frame.getBoundingClientRect(), bounds));
+  };
+  const openCommentSoon = () => {
+    if (!comment || commentTimer.current) return;
+    commentTimer.current = setTimeout(openComment, COMMENT_INTENT_MS);
+  };
+  useEffect(
+    () => () => {
+      if (commentTimer.current) clearTimeout(commentTimer.current);
+      if (closeOpenComment === closer.current) closeOpenComment = null;
+    },
+    [],
+  );
 
   // Reserving the image box up front is what stops the masonry from
   // reflowing as thumbnails decode: with aspect-ratio set from the known
@@ -34,10 +106,12 @@ export default function ArtworkCard({
   // With space reserved we can hide the image until it decodes and fade it
   // in — pure opacity, never layout. Unknown-ratio cards skip the hide so
   // they don't collapse-then-pop. While hidden, the reserved box carries the
-  // wash so the wall reads as frames-awaiting-pictures, not holes.
+  // work's own tint (or the wash, when it reports no colour) so the wall
+  // reads as frames-awaiting-pictures, each already hinting at its picture.
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const fadeReady = ratio !== undefined;
+  const tint = fadeReady && !loaded ? artworkTint(artwork) : undefined;
 
   // Warm the hi-res on hover intent so DetailView opens sharp (or nearly)
   // instead of dwelling on the blur-up: by click the full image is usually
@@ -72,8 +146,12 @@ export default function ArtworkCard({
 
   return (
     <figure
-      className="group animate-fade mb-8"
+      // raised while its comment is open, so the comment sits over the
+      // neighbouring cards it reaches across
+      className={`group animate-fade relative mb-8 ${commentAt ? "z-30" : ""}`}
       style={{ ["--stagger" as string]: `${stagger}ms` }}
+      onPointerEnter={openCommentSoon}
+      onPointerLeave={closeComment}
     >
       <button
         className="press-none block w-full cursor-pointer text-left"
@@ -81,14 +159,22 @@ export default function ArtworkCard({
         onPointerEnter={warmSoon}
         onPointerLeave={cancelWarm}
         onPointerDown={warmHires}
-        onFocus={warmHires}
+        onFocus={(e) => {
+          warmHires();
+          // keyboard focus only: focus handed back after the detail view
+          // closes shouldn't pop the comment up under the pointer
+          if (e.currentTarget.matches(":focus-visible")) openComment();
+        }}
+        onBlur={closeComment}
         aria-label={`${artwork.title}, ${artwork.artist}`}
+        aria-describedby={comment ? commentId : undefined}
       >
         <span
+          ref={frameRef}
           className={`relative block w-full border border-ink ${
             fadeReady && !loaded ? "bg-wash" : ""
           }`}
-          style={ratio ? { aspectRatio: String(ratio) } : undefined}
+          style={ratio ? { aspectRatio: String(ratio), backgroundColor: tint } : undefined}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -122,8 +208,43 @@ export default function ArtworkCard({
             aria-hidden
             className="pointer-events-none absolute inset-0 border-[3px] border-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
           />
+          {/* Curio has a word on this one: a small accent square in the top
+              right corner. The paper rim keeps it legible on a dark picture,
+              the accent fill on a light one. */}
+          {comment && (
+            <>
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-2 right-2 block h-3.5 w-3.5 border-2 border-paper bg-accent"
+              />
+              <span id={commentId} className="sr-only">
+                Curio: {comment}
+              </span>
+            </>
+          )}
         </span>
       </button>
+      {comment && commentAt && (
+        <CommentCard
+          hidden
+          className={`animate-fade pointer-events-none absolute z-10 ${
+            commentAt.side === "right"
+              ? "left-[calc(100%+12px)]"
+              : commentAt.side === "left"
+                ? "right-[calc(100%+12px)]"
+                : commentAt.side === "top"
+                  ? "inset-x-0 bottom-[calc(100%+12px)]"
+                  : "inset-x-0 top-[calc(100%+4px)]"
+          }`}
+          style={{
+            ["--stagger" as string]: "0ms",
+            width: commentAt.side === "left" || commentAt.side === "right" ? COMMENT_W : undefined,
+            top: commentAt.side === "left" || commentAt.side === "right" ? commentAt.offset : undefined,
+          }}
+        >
+          {comment}
+        </CommentCard>
+      )}
       <figcaption className="mt-2 flex flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <span className="pretty text-[14px] leading-tight font-medium underline-offset-2 group-hover:underline">

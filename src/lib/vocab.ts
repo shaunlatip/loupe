@@ -287,6 +287,40 @@ function escapeRegExp(s: string): string {
  * atmospheric morning" hits Impressionist atmosphere; "sea" does not match
  * inside "seascape" (word boundaries), but the "seascape" alias does.
  */
+/** Words that carry no search meaning of their own. */
+const FILLER = new Set(
+  (
+    "a an the and or of in on at to for with without from by like as some something " +
+    "any very more less really quite bit kind sort feel feeling vibe vibes mood look " +
+    "looks looking style styled art artwork artworks work works painting paintings " +
+    "picture pictures image images piece pieces show me find i want need please " +
+    "that this these those is are be it its my our your"
+  ).split(" "),
+);
+
+/**
+ * Whether the matched vocabulary accounts for the whole phrase. The fast path
+ * only fires when it does: "misty harbour at dawn" may match "misty", but
+ * "harbour" and "dawn" still need saying, and a vocabulary hit that silently
+ * drops them ("a lonely lighthouse on a stormy coast" → just "storm") is worse
+ * than a model call.
+ */
+export function vocabCoversPhrase(q: string, matches: VocabEntry[]): boolean {
+  if (matches.length === 0) return false;
+  let text = ` ${normalize(q).replace(/[^a-z0-9]+/g, " ")} `;
+  const aliases = matches
+    .flatMap((e) => [e.label, ...e.aliases])
+    .map((a) => normalize(a).replace(/[^a-z0-9]+/g, " ").trim())
+    .filter(Boolean)
+    // longest first, so "misty fields" is removed before "misty"
+    .sort((a, b) => b.length - a.length);
+  for (const a of aliases) text = text.split(` ${a} `).join(" ");
+  return text
+    .split(" ")
+    .filter(Boolean)
+    .every((w) => FILLER.has(w));
+}
+
 export function matchVocab(q: string): VocabEntry[] {
   const text = normalize(q);
   return VOCAB.filter((entry) =>

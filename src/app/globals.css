@@ -12,6 +12,7 @@
   --color-accent: #2400ff; /* Klein-blue territory — active states + Claude panel */
   --color-rule: #0a0a0a; /* 1px structural rules are ink, not gray */
   --color-wash: #f2f2f2; /* input/hover wash — the one non-ink surface */
+  --color-wash-strong: #e6e6e6; /* the wash, pressed: hover/open on a wash control */
 
   /* shadcn semantic names, mapped to the museum register
      (the ui/ chat components read these) */
@@ -33,7 +34,7 @@
   --color-accent-foreground: #ffffff;
 
   /* type */
-  --font-sans: var(--font-instrument), "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-lunchtype), "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-geist-mono), "SF Mono", monospace;
 
   /* radius: zero everywhere — stray rounded-* classes render square */
@@ -249,6 +250,24 @@ button:active:not(:disabled):not(.press-none) {
   animation: curio-text-sweep 1.8s linear infinite;
 }
 
+/* A frame whose image couldn't load: fine diagonal hatching in the wash,
+ * the drawing-office sign for "nothing here". */
+.hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-wash) 0 4px,
+    var(--color-wash-strong) 4px 5px
+  );
+}
+
+/* loading-dev spinners, squared to the register: Flip and Gather ship with
+ * slightly rounded blocks. Morph keeps its square-to-circle turn on purpose
+ * (motion only; it reads as a loupe coming into focus). */
+.ld-flip-face,
+.ld-gather-block {
+  border-radius: 0 !important;
+}
+
 /* Marker dot — a 6px ink square that blinks while a tool call is running */
 @keyframes curio-blink {
   0%,
@@ -295,7 +314,56 @@ button:active:not(:disabled):not(.press-none) {
   animation: curio-modal-in 200ms var(--ease-out);
 }
 
+/* Detail view: the full-size image comes into focus over its blurred
+ * preview, like a lens pulling focus. Filter and transform only; the frame
+ * around it has already reserved the picture's box. */
+@keyframes curio-focus-pull {
+  from {
+    opacity: 0;
+    filter: blur(16px);
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+.animate-focus-pull {
+  animation: curio-focus-pull 320ms var(--ease-out) both;
+}
+
+/* Registration marks: four corner ticks just outside a frame whose full-size
+ * image is still on its way, breathing slowly (a printer's crop marks). */
+@keyframes curio-register {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.register-mark {
+  animation: curio-register 1.6s ease-in-out infinite;
+}
+
+/* Loading chrome that only a slow load should ever show: held back briefly,
+ * so an image that arrives in a blink never flashes marks and captions. */
+.after-a-beat {
+  animation: curio-fade 200ms var(--ease-out) 180ms both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-focus-pull {
+    animation: curio-fade 120ms linear both;
+  }
+  .register-mark {
+    animation: none;
+  }
+  .after-a-beat {
+    animation: none;
+  }
   .animate-pop,
   .animate-pop-right,
   .animate-fade,

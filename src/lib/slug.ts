@@ -14,9 +14,11 @@ export function slugify(input: string): string {
  *  Used by the server zip builder and by browser-side downloads alike. */
 export function fileBaseName(artwork: Artwork): string {
   const parts = [
-    slugify(artwork.artist) || "unknown-artist",
-    slugify(artwork.title) || "untitled",
-    `${artwork.source}-${slugify(artwork.nativeId)}`,
+    slugify(String(artwork.artist ?? "")) || "unknown-artist",
+    slugify(String(artwork.title ?? "")) || "untitled",
+    // every part is slugged: the export route builds these from records the
+    // browser sent, and they end up in a header and in zip paths
+    `${slugify(String(artwork.source))}-${slugify(String(artwork.nativeId))}`,
   ];
   let base = parts.join("--");
   if (base.length > 120) base = base.slice(0, 120).replace(/-+$/, "");

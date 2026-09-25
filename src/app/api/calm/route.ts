@@ -1,21 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCalm, getCalmFromBytes } from "@/lib/calm-server";
+import { isMuseumImageUrl } from "@/lib/image-hosts";
 
 // Cap on bytes the browser may hand us for decode (see POST) — a thumb is
 // well under this; the limit just keeps the route from being a free decoder.
 const MAX_UPLOAD_BYTES = 3_000_000;
 
-// Only the museum image hosts Curio's adapters actually emit — this route
-// fetches whatever URL it's given server-side, so pin it to known thumbnail
-// hosts rather than acting as an open image-fetch proxy.
-const ALLOWED_HOSTS = new Set([
-  "www.artic.edu",
-  "openaccess-cdn.clevelandart.org",
-  "images.metmuseum.org",
-  "iip-thumb.smk.dk", // SMK thumbnails
-  "img.artsmia.org", // Mia thumbnails
-  "ids.lib.harvard.edu", // Harvard IIIF thumbnails (dormant until key)
-]);
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -25,13 +15,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "id and url are required" }, { status: 400 });
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return NextResponse.json({ error: "invalid url" }, { status: 400 });
-  }
-  if (!ALLOWED_HOSTS.has(parsed.hostname)) {
+  // This route fetches whatever URL it's given server-side, so it's pinned
+  // to the museums' image hosts rather than acting as an open image proxy.
+  if (!isMuseumImageUrl(url)) {
     return NextResponse.json({ error: "url host not allowed" }, { status: 400 });
   }
 

@@ -1,0 +1,32 @@
+{
+  "cats-with-opinions": [
+    "https://images.metmuseum.org/CRDImages/dp/web-large/MM59517.jpg",
+    "https://www.artic.edu/iiif/2/c7a1688c-8a21-8eab-086d-3537b1506705/full/!240,240/0/default.jpg",
+    "https://img.artsmia.org/web_objects_cache/007000/300/70/7373/mia_71020a_800.jpg"
+  ],
+  "most-dramatic-sky": [
+    "https://openaccess-cdn.clevelandart.org/1965.233/1965.233_web.jpg",
+    "https://www.artic.edu/iiif/2/6a676ee7-39c0-0b88-c37e-36ba0c5e3065/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/564e2e3f-eb93-88a7-d265-8fea006facff/full/!240,240/0/default.jpg"
+  ],
+  "tiny-people-huge-landscapes": [
+    "https://images.metmuseum.org/CRDImages/ph/web-large/DP-12585-027.jpg",
+    "https://www.artic.edu/iiif/2/564e2e3f-eb93-88a7-d265-8fea006facff/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/07bdc94a-7d44-fde8-c0e1-f19fefce359d/full/!240,240/0/default.jpg"
+  ],
+  "monsters-and-marvels": [
+    "https://www.artic.edu/iiif/2/34725c4e-679d-684d-6399-1887ca591c99/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/d2905eaf-73c2-7796-5121-54600b4b2df4/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/babeb325-2bc8-ed98-94b7-eed54d0537a6/full/!240,240/0/default.jpg"
+  ],
+  "snacks-through-history": [
+    "https://www.artic.edu/iiif/2/4c34d7d7-fb7d-097e-cfcb-68916264b1d6/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/f2021182-1302-f76f-97f1-4e7850030e3b/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/d9bde524-38b2-4262-3338-e4d06a50746d/full/!240,240/0/default.jpg"
+  ],
+  "hammershoi-outside": [
+    "https://www.artic.edu/iiif/2/3ef69544-a84c-dfa4-df6a-346b4b59c351/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/76d6a66a-4276-3966-e9aa-90d74f04cd3e/full/!240,240/0/default.jpg",
+    "https://www.artic.edu/iiif/2/68e24e96-1f25-75cd-bb2c-232713f131a9/full/!240,240/0/default.jpg"
+  ]
+}

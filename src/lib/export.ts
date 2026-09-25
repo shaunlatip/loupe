@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Artwork, SourceId } from "@/lib/types";
+import { isMuseumImageUrl } from "@/lib/image-hosts";
 import { fileBaseName, imageExtension, slugify } from "@/lib/slug";
 import { createZip, type ZipEntry } from "@/lib/zip";
 
@@ -42,16 +43,29 @@ export interface DownloadResult {
   results: ExportItemResult[];
 }
 
+/** A collection export's works come from the browser, so they're capped. */
+export const EXPORT_MAX_WORKS = 60;
+/** One museum hi-res is a few MB; past this it isn't a museum image. */
+const IMAGE_MAX_BYTES = 40_000_000;
+
 async function fetchImage(artwork: Artwork): Promise<Uint8Array> {
+  // The URL arrives in the request body: only museum image hosts, before and
+  // after any redirect, or this route would be an open proxy.
+  if (!isMuseumImageUrl(artwork.imageHires)) throw new Error("not a museum image");
   const res = await fetch(artwork.imageHires, {
     headers: {
       // Some IIIF servers (AIC) 403 requests without a browser-ish UA.
       "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curio/1.0",
       accept: "image/*,*/*;q=0.8",
     },
+    signal: AbortSignal.timeout(20_000),
   });
+  if (!isMuseumImageUrl(res.url)) throw new Error("redirected off the museum");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return new Uint8Array(await res.arrayBuffer());
+  if (Number(res.headers.get("content-length") ?? 0) > IMAGE_MAX_BYTES) throw new Error("image too large");
+  const data = new Uint8Array(await res.arrayBuffer());
+  if (data.byteLength > IMAGE_MAX_BYTES) throw new Error("image too large");
+  return data;
 }
 
 function sidecarJson(artwork: Artwork, downloadedAt: string): string {
@@ -100,8 +114,8 @@ function attributionMarkdown(artworks: Artwork[], downloadedAt: string): string 
 
 /** Build the browser download for a request — image for one work, zip for many. */
 export async function buildDownload(request: ExportRequest): Promise<DownloadResult> {
-  const artworks = request.artworks ?? [];
-  const folderName = slugify(request.folderName ?? "") || "curio-export";
+  const artworks = (Array.isArray(request.artworks) ? request.artworks : []).slice(0, EXPORT_MAX_WORKS);
+  const folderName = slugify(typeof request.folderName === "string" ? request.folderName : "") || "curio-export";
   if (artworks.length === 0) throw new Error("Nothing to export");
   const downloadedAt = new Date().toISOString();
 
