@@ -43,8 +43,8 @@ export default function HomeHero({
   }));
 
   return (
-    <div className="animate-fade grid grid-cols-12 gap-x-6 gap-y-12 pt-12 pb-10 max-lg:pt-8">
-      <div className="col-span-12 flex min-w-0 flex-col gap-10 lg:col-span-9">
+    <div className="animate-fade grid grid-cols-12 gap-x-6 gap-y-12 pt-12 pb-10 max-lg:pt-8 max-sm:gap-y-10 max-sm:pt-6">
+      <div className="col-span-12 flex min-w-0 flex-col gap-10 max-sm:gap-8 lg:col-span-9">
         <div className="flex flex-col gap-4">
           <h2 className="pretty max-w-[24ch] text-[34px] leading-[1.1] font-semibold tracking-[-0.015em] max-md:text-[26px]">
             Public-domain paintings from five museums&rsquo; open collections.
@@ -59,7 +59,10 @@ export default function HomeHero({
 
         <section className="flex flex-col gap-3" aria-label="Try one of these">
           <h3 className="caption">Try</h3>
-          <div className="grid grid-cols-3 gap-3 max-md:-mx-6 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:overflow-x-auto max-md:px-6 max-md:pb-1">
+          {/* Narrow: one swiping row, bleeding to the window's edges; the
+              scroll padding matches the gutter so a card snaps to the page's
+              left edge, not the window's. */}
+          <div className="grid grid-cols-3 gap-3 max-md:-mx-6 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:scroll-px-6 max-md:overflow-x-auto max-md:overscroll-x-contain max-md:px-6 max-md:pb-1 max-sm:-mx-4 max-sm:scroll-px-4 max-sm:px-4">
             {EXAMPLES.map((ex, i) => {
               const thumbs = previews[ex.slug] ?? [];
               return (
@@ -107,7 +110,7 @@ export default function HomeHero({
                       key={c.id}
                       type="button"
                       onClick={() => onCategory(c.id)}
-                      className="bg-wash px-2.5 py-1 text-[12px] leading-[18px] hover:bg-wash-strong"
+                      className="bg-wash px-2.5 py-1 text-[12px] leading-[18px] hover:bg-wash-strong pointer-coarse:py-1.5"
                     >
                       {c.label}
                     </button>
@@ -126,7 +129,7 @@ export default function HomeHero({
             <li key={s}>{sourceLabel(s)}</li>
           ))}
         </ul>
-        <p className="caption pretty leading-relaxed">
+        <p className="caption pretty leading-relaxed max-lg:hidden">
           Every work is CC0 or public domain, with attribution kept in every download.
         </p>
       </aside>

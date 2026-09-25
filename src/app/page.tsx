@@ -619,11 +619,12 @@ export default function Home() {
         // The detail view is a full-screen dialog; everything under it is
         // inert so tab order and screen readers stay inside the dialog.
         inert={open ? true : undefined}
-        className="mx-auto max-w-[1440px] px-6 pb-24 transition-[margin] duration-200 ease-[var(--ease-in-out)] [html[data-resizing]_&]:transition-none"
+        className="mx-auto max-w-[1440px] px-6 pb-24 max-sm:px-4 max-sm:pb-16 transition-[margin] duration-200 ease-[var(--ease-in-out)] [html[data-resizing]_&]:transition-none"
         style={{ marginRight: "max(calc((100vw - 1440px) / 2), var(--thread-w, 0px))" }}
       >
         <SiteHeader
           onHome={clearAll}
+          wall={showWall}
           collections={
             <CollectionsMenu
               collections={collectionSummaries}
@@ -640,7 +641,7 @@ export default function Home() {
         {showWall ? (
           <>
             <TopComposer />
-            <div className="border-b border-ink py-4">
+            <div className="border-b border-ink py-4 max-sm:py-3">
               <FilterRow
                 sources={ALL_SOURCES}
                 enabled={sources}
@@ -650,7 +651,7 @@ export default function Home() {
               />
             </div>
 
-            <div className="pt-8">
+            <div className="pt-8 max-sm:pt-5">
               <CuratorTable emptyWall={curating && results.artworks.length === 0} />
               {sort === "similar" && colorlessCount > 0 && (
                 <p className="caption animate-rise mb-4">
@@ -767,16 +768,25 @@ function Shortcuts() {
  * The header, on the page's 12-column grid: the wordmark over the content
  * columns, the tagline, credits and the door to the thread at the right.
  */
-function SiteHeader({ onHome, collections }: { onHome: () => void; collections: React.ReactNode }) {
+function SiteHeader({
+  onHome,
+  collections,
+  wall,
+}: {
+  onHome: () => void;
+  collections: React.ReactNode;
+  /** a wall is up: on a phone the credit line gives its room to the works */
+  wall: boolean;
+}) {
   return (
-    <header className="grid grid-cols-12 items-end gap-x-6 gap-y-4 border-b border-ink py-8">
-      <h1 className="col-span-6 text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[44px]">
+    <header className="grid grid-cols-12 items-end gap-x-6 gap-y-4 border-b border-ink py-8 max-sm:gap-x-3 max-sm:py-5">
+      <h1 className="col-span-6 max-sm:col-span-4 text-outline text-[64px] leading-[1.05] font-bold tracking-[-0.02em] max-md:text-[44px] max-sm:text-[40px]">
         {/* the wordmark is intentionally lowercase */}
         <button type="button" onClick={onHome} title="Back to the start" className="press-none text-inherit">
           curio
         </button>
       </h1>
-      <div className="col-span-6 flex items-center justify-end gap-4">
+      <div className="col-span-6 flex min-w-0 items-center justify-end gap-4 max-sm:col-span-8">
         <p className="caption hidden text-right lg:block">
           Open-access museum art, curated by an agent
           <br />
@@ -790,7 +800,7 @@ function SiteHeader({ onHome, collections }: { onHome: () => void; collections: 
         </div>
       </div>
       {/* narrower: the same credit on its own line under the wordmark */}
-      <p className="caption col-span-12 -mt-2 lg:hidden">
+      <p className={`caption col-span-12 -mt-2 lg:hidden ${wall ? "max-sm:hidden" : ""}`}>
         Open-access museum art, curated by an agent, <Credit />
       </p>
     </header>
@@ -826,12 +836,14 @@ function Credit() {
  *  attached works belong to the thread's own input, so they show (and send)
  *  only there. */
 function TopComposer() {
-  const { open } = useThread();
+  const { open, mode } = useThread();
   return (
-    <div className="animate-fade pt-5">
+    <div className="animate-fade pt-5 max-sm:pt-4">
       <Composer
         variant="bar"
-        placeholder="Hokusai, fog over water, cats with opinions…"
+        // narrow (the thread is a sheet there): the long placeholder would
+        // wrap past the bar's height beside the button
+        placeholder={mode === "sheet" ? "Hokusai, fog over water…" : "Hokusai, fog over water, cats with opinions…"}
         attachmentsHere={!open}
       />
     </div>
