@@ -1,0 +1,5 @@
+# rendered output and review frames: regenerate with `npm run render` / `snapshot`
+renders/
+snapshots/
+.hyperframes/
+node_modules/
