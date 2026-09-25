@@ -130,6 +130,13 @@ export default function DetailView({
     return () => opener?.focus?.();
   }, []);
 
+  // Phone: stepping to the next work starts at its picture, not wherever the
+  // last one's label was scrolled to.
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    body.current?.scrollTo({ top: 0 });
+  }, [src]);
+
   const rect = calm?.rect;
   const hasSafeZone = !!rect && rect.w > 0 && rect.h > 0;
 
@@ -143,6 +150,31 @@ export default function DetailView({
   const stepBtn =
     "invert-hover flex h-[30px] w-[38px] items-center justify-center border border-ink disabled:opacity-30 disabled:pointer-events-none";
 
+  // Phone: the dialog scrolls as one column, picture first. The picture's
+  // wall is as tall as the work needs at full width (plus its padding), up
+  // to about two thirds of the screen, so a landscape isn't floated in a tall
+  // band of tint and the label starts right under it.
+  const phoneWallHeight = ratio ? `min(68svh, calc((100vw - 2rem) / ${ratio} + 2rem))` : "60svh";
+
+  // Phone: a horizontal swipe on the picture steps through the wall, like
+  // ← / →. One finger only (two is a pinch), and mostly sideways.
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    swipe.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const s = swipe.current;
+    swipe.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) onNext?.();
+    else onPrev?.();
+  };
+
   return (
     <div
       role="dialog"
@@ -150,11 +182,11 @@ export default function DetailView({
       aria-label={`${artwork.title}, ${artwork.artist}`}
       className="animate-modal-in fixed inset-0 z-50 flex flex-col bg-paper"
     >
-      <header className="flex items-center justify-between gap-4 border-b border-ink px-6 py-3">
+      <header className="flex items-center justify-between gap-4 border-b border-ink px-6 py-3 max-sm:gap-2 max-sm:px-4">
         <span className="caption min-w-0 truncate">{sourceLabel(artwork.source)}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {position && (
-            <span className="caption tabular mr-2 hidden sm:inline">
+            <span className="caption tabular mr-2 shrink-0 max-sm:mr-1">
               {position.index} / {position.total}
             </span>
           )}
@@ -192,12 +224,17 @@ export default function DetailView({
           </button>
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div
+        ref={body}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain md:flex-row md:overflow-visible"
+      >
         {/* The wall behind the work carries a whisper of its own colour
             (src/lib/tint.ts), or the plain wash when it has none. */}
         <div
-          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-wash p-6 transition-[background-color] duration-300 [container-type:size]"
-          style={tint ? { backgroundColor: tint } : undefined}
+          className="flex shrink-0 items-center justify-center overflow-hidden bg-wash p-6 transition-[background-color] duration-300 [container-type:size] max-md:h-(--wall-h) max-md:p-4 md:min-h-0 md:flex-1"
+          style={{ backgroundColor: tint, ["--wall-h" as string]: phoneWallHeight }}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
         >
           {/* The frame shrink-wraps to the picture's own rendered box (no
               separate letterbox), so percentage-positioned children land on
@@ -315,7 +352,10 @@ export default function DetailView({
             )}
           </div>
         </div>
-        <aside className="w-full shrink-0 overflow-y-auto border-t border-ink p-6 md:w-[360px] md:border-t-0 md:border-l">
+        {/* Phone: one column under the picture, with the actions moved up
+            under the title and Curio's comment (flex order), so Save and
+            Download don't sit below a screenful of catalogue data. */}
+        <aside className="w-full shrink-0 border-t border-ink p-6 max-md:flex max-md:flex-col max-md:px-4 max-md:pb-10 md:w-[360px] md:overflow-y-auto md:border-t-0 md:border-l">
           <h2 className="balance text-[24px] leading-tight font-semibold">
             {artwork.title}
           </h2>
@@ -330,7 +370,7 @@ export default function DetailView({
               <Icon
                 icon={Plus}
                 size={13}
-                className="shrink-0 text-ink/40 opacity-0 transition-opacity duration-150 group-hover/attach:opacity-100 group-focus-visible/attach:opacity-100"
+                className="shrink-0 text-ink/40 opacity-0 transition-opacity duration-150 group-hover/attach:opacity-100 group-focus-visible/attach:opacity-100 pointer-coarse:opacity-100"
               />
             </button>
           ) : (
@@ -367,7 +407,7 @@ export default function DetailView({
             </CommentCard>
           )}
 
-          <dl className="mt-8 flex flex-col gap-3 border-t border-ink pt-4">
+          <dl className="mt-8 flex flex-col gap-3 border-t border-ink pt-4 max-md:order-2">
             {artwork.medium && (
               <div>
                 <dt className="caption">Medium</dt>
@@ -438,7 +478,7 @@ export default function DetailView({
           </dl>
 
           {hasSafeZone && (
-            <label className="mt-6 flex cursor-pointer select-none items-center gap-2 border-t border-ink pt-4 text-[13px]">
+            <label className="mt-6 flex cursor-pointer select-none items-center gap-2 border-t border-ink pt-4 text-[13px] max-md:order-3">
               <input
                 type="checkbox"
                 checked={showSafeZone}
@@ -456,7 +496,7 @@ export default function DetailView({
           )}
 
           {actions && (
-            <div className="mt-8 flex flex-col gap-2 border-t border-ink pt-4">
+            <div className="mt-8 flex flex-col gap-2 border-t border-ink pt-4 max-md:order-1 max-md:mt-6">
               {actions}
             </div>
           )}
