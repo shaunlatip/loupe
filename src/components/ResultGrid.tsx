@@ -84,13 +84,13 @@ function SkeletonGrid({ k }: { k: number }) {
   const cols = Array.from({ length: k }, () => [] as number[]);
   SKELETON_RATIOS.forEach((r, i) => cols[i % k].push(r));
   return (
-    <div className="flex gap-6" aria-hidden>
+    <div className="flex gap-6 max-sm:gap-3" aria-hidden>
       {cols.map((col, c) => (
         <div key={c} className="flex min-w-0 flex-1 flex-col">
           {col.map((ratio, i) => (
             <div
               key={i}
-              className="animate-fade mb-8"
+              className="animate-fade mb-8 max-sm:mb-6"
               style={{ ["--stagger" as string]: `${(c + i * k) * 40}ms` }}
             >
               <div
@@ -152,7 +152,7 @@ function ResultGrid({
       {/* Wall label — the museum-caption register: what you're looking at,
           then how much of it and from where. */}
       {(heading || note || count > 0 || loading) && (
-        <header className="mb-8 flex flex-col gap-3 border-b border-ink pb-4">
+        <header className="mb-8 flex flex-col gap-3 border-b border-ink pb-4 max-sm:mb-5">
           {heading && (
             <h2 className="balance text-[32px] leading-[1.1] font-semibold tracking-[-0.015em] max-md:text-[24px]">
               {heading}
@@ -210,7 +210,7 @@ function ResultGrid({
         // A new query keeps the previous wall in place, dimmed, until the
         // fanout lands — no collapse-to-skeleton, no layout jump.
         <div
-          className={`flex gap-6 transition-opacity duration-200 ${
+          className={`flex gap-6 max-sm:gap-3 transition-opacity duration-200 ${
             loading ? "pointer-events-none opacity-40" : "opacity-100"
           }`}
           aria-hidden={loading || undefined}

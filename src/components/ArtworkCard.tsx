@@ -148,9 +148,12 @@ export default function ArtworkCard({
     <figure
       // raised while its comment is open, so the comment sits over the
       // neighbouring cards it reaches across
-      className={`group animate-fade relative mb-8 ${commentAt ? "z-30" : ""}`}
+      className={`group animate-fade relative mb-8 max-sm:mb-6 ${commentAt ? "z-30" : ""}`}
       style={{ ["--stagger" as string]: `${stagger}ms` }}
-      onPointerEnter={openCommentSoon}
+      // a pointer resting on the card, not a finger: on a touch screen a tap
+      // opens the work (whose view shows the comment), and a press that
+      // starts a scroll shouldn't pop one up
+      onPointerEnter={(e) => e.pointerType !== "touch" && openCommentSoon()}
       onPointerLeave={closeComment}
     >
       <button
@@ -245,12 +248,15 @@ export default function ArtworkCard({
           {comment}
         </CommentCard>
       )}
-      <figcaption className="mt-2 flex flex-col gap-1">
+      {/* A narrow card (two columns on a phone) gives the title the full
+          width and drops the swatch and calm score, which the detail view
+          still shows; the museum moves down beside the artist. */}
+      <figcaption className="@container mt-2 flex flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
-          <span className="pretty text-[14px] leading-tight font-medium underline-offset-2 group-hover:underline">
+          <span className="pretty text-[14px] leading-tight font-medium underline-offset-2 group-hover:underline @max-[15rem]:text-[13px]">
             {artwork.title}
           </span>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5 @max-[15rem]:hidden">
             {artwork.color && (
               <span
                 aria-hidden
@@ -264,14 +270,17 @@ export default function ArtworkCard({
             <SourceBadge source={artwork.source} />
           </div>
         </div>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="caption">
+        <div className="flex items-baseline justify-between gap-2 @max-[15rem]:items-start">
+          <span className="caption @max-[15rem]:line-clamp-2">
             {artwork.artist}
             {artwork.date ? ` · ${artwork.date}` : ""}
           </span>
+          <span className="hidden shrink-0 @max-[15rem]:block">
+            <SourceBadge source={artwork.source} />
+          </span>
           {/* fixed-width slot reserved up front — no shift when the score lands */}
           <span
-            className="caption tabular min-w-[4.5em] shrink-0 text-right font-mono"
+            className="caption tabular min-w-[4.5em] shrink-0 text-right font-mono @max-[15rem]:hidden"
             title={calm ? "Calm score: share of the image that is quiet enough to sit UI on" : undefined}
           >
             {calm ? `calm ${calm.score}` : ""}
