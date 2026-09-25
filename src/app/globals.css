@@ -75,6 +75,9 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* the browser's grey tap flash is a rounded wash over square controls;
+     presses answer with the scale and the invert below instead */
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
@@ -143,9 +146,21 @@ button:active:not(:disabled):not(.press-none) {
     color 120ms,
     transform 120ms var(--ease-out);
 }
-.invert-hover:hover {
-  background: var(--color-ink);
-  color: var(--color-paper);
+/* Only where something can hover: on a touch screen :hover sticks after a
+ * tap, leaving the button inverted as if it were still selected. (Tailwind's
+ * own hover: variant carries the same guard.) */
+@media (hover: hover) {
+  .invert-hover:hover {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+}
+/* On touch the invert answers the press instead, while the finger is down. */
+@media (hover: none) {
+  .invert-hover:active {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
 }
 
 /*
