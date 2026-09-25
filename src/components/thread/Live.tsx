@@ -50,7 +50,7 @@ export function fmtElapsed(ms: number): string {
 
 /** Seconds since `since`. Ticks on the turn's own second boundaries (not
  *  every 1000ms from whenever it mounted), so every timer showing the same
- *  turn (the status line, the header pill, the table band) flips together. */
+ *  turn (the thread mark, the header pill, the table band) flips together. */
 export function Elapsed({ since, className = "" }: { since?: number; className?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

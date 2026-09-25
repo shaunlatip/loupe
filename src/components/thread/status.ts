@@ -4,7 +4,7 @@ import { thinkingPhrases } from "./phrases";
 
 /**
  * What Curio is doing right now, derived once from the conversation and read
- * by every surface that shows it (the thread's status line, the header pill,
+ * by every surface that shows it (the thread header's mark, the header pill,
  * the jump button, the tab title) so they can never disagree.
  */
 export type CuratorPhase =
@@ -141,7 +141,7 @@ export function deriveStatus(
   return { ...base, phase: "idle" };
 }
 
-/** A one-line status for the pill / title / status line. */
+/** A one-line status for the pill / title / the thread mark's tooltip. */
 export function statusText(s: CuratorStatus): string {
   switch (s.phase) {
     case "searching":

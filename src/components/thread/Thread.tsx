@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ArrowDown, Check, RotateCcw, X } from "lucide-react";
+import { ArrowDown, RotateCcw, X } from "lucide-react";
 import type { Artwork } from "@/lib/types";
 import { EXAMPLES } from "@/lib/examples";
 import { warmRecording } from "@/lib/example-recordings";
 import Icon from "../Icon";
 import Composer from "./Composer";
 import { Spinner } from "./Glyph";
-import { Elapsed, ThinkingLine } from "./Live";
+import { ThinkingLine } from "./Live";
 import { AssistantMessage, UserMessage } from "./Message";
 import { isWorking, statusText } from "./status";
 import { THREAD_DEFAULT, THREAD_MIN, exhibitPartIdOf, threadMax, useThread } from "./ThreadProvider";
@@ -106,42 +106,33 @@ function ResizeHandle() {
   );
 }
 
-function StatusLine() {
+/**
+ * Curio's mark, left of its name in the thread header: the working spinner
+ * while it works, an accent square at rest (the spinner's face, standing
+ * still), red after an error. The words go to screen readers and the tooltip.
+ */
+function CurioMark() {
   const { curator, curatorText: text, curatorGlyph } = useThread();
   const working = isWorking(curator);
-  if (curator.phase === "idle") return null;
   return (
-    <div
-      className={`flex items-center gap-2 border-b border-ink/15 px-4 py-1.5 text-[12px] leading-[18px] ${
-        curator.phase === "error" ? "text-destructive" : "text-ink/80"
-      }`}
-      role="status"
-      aria-live="polite"
-    >
-      {/* the accent is for live activity only: stopped is neutral, an error is red */}
+    <>
       <span
         aria-hidden
-        className={`flex h-[18px] w-3 shrink-0 items-center justify-center ${
-          working ? "text-accent" : curator.phase === "error" ? "text-destructive" : "text-ink/40"
+        title={text || undefined}
+        className={`flex h-5 w-3 shrink-0 items-center justify-center ${
+          curator.phase === "error" ? "text-destructive" : "text-accent"
         }`}
       >
         {working ? (
-          <Spinner phase={curatorGlyph} size={11} />
-        ) : curator.phase === "done" ? (
-          <Icon icon={Check} size={12} className="text-ink" />
+          <Spinner phase={curatorGlyph} size={12} />
         ) : (
-          <span className="block h-1.5 w-1.5 bg-current" />
+          <span className="block h-2 w-2 bg-current" />
         )}
       </span>
-      <span key={text} className="animate-fade min-w-0 flex-1 truncate">
+      <span className="sr-only" role="status" aria-live="polite">
         {text}
       </span>
-      {working ? (
-        <Elapsed since={curator.turnStartedAt} className="text-muted-foreground" />
-      ) : curator.phase === "done" && curator.seconds ? (
-        <span className="tabular font-mono text-muted-foreground">{curator.seconds}s</span>
-      ) : null}
-    </div>
+    </>
   );
 }
 
@@ -291,7 +282,11 @@ export default function Thread({
         {mode !== "sheet" && <ResizeHandle />}
         <header className="flex items-center justify-between gap-3 border-b border-ink px-4 py-3">
           <div className="flex min-w-0 items-baseline gap-2">
-            <span className="text-[15px] leading-5 font-semibold">Curio</span>
+            <span className="flex items-center gap-2">
+              <CurioMark />
+              {/* the name, not the mark, carries the baseline the model caption sits on */}
+              <span className="self-baseline text-[15px] leading-5 font-semibold">Curio</span>
+            </span>
             {model && (
               <span className="caption truncate leading-5" title="The model answering this thread">
                 {model}
@@ -321,7 +316,6 @@ export default function Thread({
             </button>
           </div>
         </header>
-        <StatusLine />
 
         <StickToBottom className="relative min-h-0 flex-1" initial="instant" resize="smooth">
           <StickToBottom.Content
