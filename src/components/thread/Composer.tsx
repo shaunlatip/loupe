@@ -199,7 +199,7 @@ export default function Composer({
         rows={1}
         enterKeyHint="send"
         aria-label={hero ? "Ask Curio" : "Message Curio"}
-        placeholder={attachments.length ? "Ask about these, or press Enter to find more like them" : placeholder}
+        placeholder={attachments.length ? "Ask about these, or send as is to find more like them" : placeholder}
         className={`block w-full min-w-0 resize-none bg-transparent outline-none placeholder:text-muted-foreground ${
           hero
             ? "px-4 pt-4 text-[17px] leading-[26px]"
