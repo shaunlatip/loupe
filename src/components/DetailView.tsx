@@ -157,11 +157,13 @@ export default function DetailView({
   const phoneWallHeight = ratio ? `min(68svh, calc((100vw - 2rem) / ${ratio} + 2rem))` : "60svh";
 
   // Phone: a horizontal swipe on the picture steps through the wall, like
-  // ← / →. One finger only (two is a pinch), and mostly sideways.
+  // ← / →. One finger only (two is a pinch), mostly sideways, and not while
+  // pinch-zoomed in, where a one-finger drag pans around the picture.
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
-    swipe.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+    const zoomed = (window.visualViewport?.scale ?? 1) > 1.01;
+    swipe.current = e.touches.length === 1 && !zoomed ? { x: t.clientX, y: t.clientY } : null;
   };
   const onTouchEnd = (e: React.TouchEvent) => {
     const s = swipe.current;
